@@ -1,12 +1,18 @@
 import discord
 import random
+import time
 from discord import app_commands
 from discord.ext import commands
-from constants.economy_config import MINING_RARITY_TIERS
+from constants.mining_config import MINING_RARITY_TIERS
 
 
 async def perform_mining(bot, user_id):
-    """Perform the mining operation and return the mined item, value, and new balance."""
+    """
+    Perform the mining operation and return the fished item, value, and new balance.
+
+    :param bot: The bot instance.
+    :param user_id: The ID of the user performing the mining operation.
+    """
     # Weighted Random Selection of Rarity using random.choices
     rarities, weights = zip(
         *[(rarity, info["weight"]) for rarity, info in MINING_RARITY_TIERS.items()]
@@ -21,20 +27,39 @@ async def perform_mining(bot, user_id):
 
     # Randomly determine the value of the mined item within the value range
     value = random.randint(rarity_info["value_range"][0], rarity_info["value_range"][1])
-    xp = random.randint(5, 10)
+    xp_gained = random.randint(5, 10)
     # Update user's work stats (total mined value and items mined)
-    await bot.database.set_work_stats(user_id, value, xp, "mining")
+    current_xp, next_level_xp = await bot.database.set_work_stats(
+        user_id, value, xp_gained, "mining"
+    )
     balance = await bot.database.get_balance(user_id)
     await bot.database.set_balance(user_id, balance + value)
 
-    return mined_item, value, xp, balance + value
+    return (
+        mined_item,
+        value,
+        current_xp,
+        xp_gained,
+        next_level_xp,
+        balance + value,
+    )
 
 
-def create_mining_embed(user, mined_item, value, xp, new_balance):
-    """Generate an embed for the mining result."""
+def create_mining_embed(
+    user, mined_item, value, current_xp, xp_gained, next_level_xp, new_balance
+):
+    """
+    Generate an embed for the mining result.
+
+    :param user: The user who performed the mining operation.
+    :param mined_item: The item that was mined.
+    :param value: The value of the mined item.
+    :param xp_gained: The XP earned from the mining operation.
+    :param new_balance: The new balance of the user after the mining operation.
+    """
     return discord.Embed(
         title=f"{user.display_name}'s Mining Results",
-        description=f"You mined a **{mined_item}** worth **{value}** coins!\nCurrent balance: **{new_balance}** coins. Earned **{xp}** XP.",
+        description=f"You mined a **{mined_item}** worth **{value}** coins!\nCurrent balance: **{new_balance}** coins. Earned **{xp_gained}** XP.\nXP Progress: {current_xp}/{next_level_xp}",
         color=discord.Color.green(),
     )
 
@@ -49,17 +74,28 @@ class MineAgainView(discord.ui.View):
     async def mine_again(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
+        """
+        Button callback to perform mining again.
+
+        :param interaction: The interaction object from Discord.
+        :param button: The button that was clicked."""
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(
                 "You cannot use this button.", ephemeral=True
             )
             return
-        mined_item, value, xp, new_balance = await perform_mining(
-            self.bot, self.user_id
+        mined_item, value, current_xp, xp_gained, next_level_xp, new_balance = (
+            await perform_mining(self.bot, self.user_id)
         )
 
         embed = create_mining_embed(
-            interaction.user, mined_item, value, xp, new_balance
+            interaction.user,
+            mined_item,
+            value,
+            current_xp,
+            xp_gained,
+            next_level_xp,
+            new_balance,
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -70,16 +106,27 @@ class Mining(commands.Cog):
 
     @app_commands.command(name="mine", description="Mine ores for money")
     async def mine(self, interaction: discord.Interaction):
+        """
+        Command to perform mining and get a random item with its value.
+
+        :param interaction: The interaction object from Discord.
+        """
         await interaction.response.defer()
 
         # Perform the mining logic
-        mined_item, value, xp, new_balance = await perform_mining(
-            self.bot, interaction.user.id
+        mined_item, value, current_xp, xp_gained, next_level_xp, new_balance = (
+            await perform_mining(self.bot, interaction.user.id)
         )
 
         # Create the embed
         embed = create_mining_embed(
-            interaction.user, mined_item, value, xp, new_balance
+            interaction.user,
+            mined_item,
+            value,
+            current_xp,
+            xp_gained,
+            next_level_xp,
+            new_balance,
         )
 
         # Initialize the MineAgainView with the bot and user_id

@@ -1,4 +1,7 @@
 import logging
+import colorama
+
+colorama.init(autoreset=True)
 
 
 class LoggingFormatter(logging.Formatter):

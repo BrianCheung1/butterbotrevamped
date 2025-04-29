@@ -13,6 +13,12 @@ class Balance(commands.Cog):
     async def balance(
         self, interaction: discord.Interaction, user: discord.User = None
     ):
+        """
+        This command checks the balance of a user. If no user is specified, it checks the balance of the command invoker.
+
+        :param interaction: The interaction object from Discord.
+        :param user: The user whose balance to check. If None, defaults to the command invoker.
+        """
         user = user or interaction.user
         balance = await self.bot.database.get_balance(user.id)
 

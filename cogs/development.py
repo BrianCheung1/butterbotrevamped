@@ -2,6 +2,7 @@ import asyncio
 import discord
 import os
 import platform
+import traceback
 
 from datetime import datetime
 from discord import app_commands
@@ -362,15 +363,32 @@ class Development(commands.Cog):
         :param interaction: The interaction of the command.
         :param error: The error that occurred.
         """
+        # Get the traceback of the error
+        tb = traceback.format_exception(type(error), error, error.__traceback__)
+
+        # Check if traceback is valid (i.e., non-empty)
+        if tb:
+            # Attempt to extract line number from the last part of the traceback
+            try:
+                # Extract line number from the traceback message
+                line_number = tb[-1].split(",")[1].strip().split()[1]
+            except IndexError:
+                line_number = "Unknown Line"
+        else:
+            line_number = "Unknown Line"
+
+        # Log the error with line number
         if interaction.guild:
             self.bot.logger.error(
                 f"Error in /{interaction.command.name} command: {error} in {interaction.guild.name} (ID: {interaction.guild.id}) "
-                f"by {interaction.user} (ID: {interaction.user.id})"
+                f"by {interaction.user} (ID: {interaction.user.id}) at line {line_number}"
             )
         else:
             self.bot.logger.error(
-                f"Error in /{interaction.command.name} command: {error} in DMs by {interaction.user} (ID: {interaction.user.id})"
+                f"Error in /{interaction.command.name} command: {error} in DMs by {interaction.user} (ID: {interaction.user.id}) "
+                f"at line {line_number}"
             )
+
         # Check if already responded
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)

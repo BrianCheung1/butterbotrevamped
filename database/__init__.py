@@ -144,6 +144,7 @@ class DatabaseManager:
         updates[value_field] = work_stats[value_field] + value
         new_xp = work_stats[xp_field] + xp
         updates[xp_field] = new_xp
+        new_next_level_xp = work_stats[next_level_xp_field]
 
         # Level-up check
         if new_xp >= work_stats[next_level_xp_field]:
@@ -166,3 +167,4 @@ class DatabaseManager:
         )
 
         await self.connection.commit()
+        return new_xp, new_next_level_xp
