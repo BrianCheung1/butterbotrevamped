@@ -1,0 +1,16 @@
+:: Move to the Scripts directory inside env
+cd /d "%~dp0env\Scripts"
+
+:: Activate the environment
+call activate
+
+:: Go up two directories (out of Scripts\ and env\)
+cd ../..
+
+:: Move into the Butterbot folder
+cd Butterbot
+
+:: Run your main bot file
+py main.py
+
+pause
