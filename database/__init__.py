@@ -1,4 +1,5 @@
 import aiosqlite
+import json
 from logger import setup_logger
 
 logger = setup_logger("DatabaseManager")
@@ -7,6 +8,19 @@ logger = setup_logger("DatabaseManager")
 class DatabaseManager:
     def __init__(self, *, connection: aiosqlite.Connection) -> None:
         self.connection = connection
+        self.connection.row_factory = aiosqlite.Row
+
+    async def _create_user_if_not_exists(self, user_id: int) -> None:
+        """
+        Ensures that a user exists. If not, creates a new user with default entries across related tables.
+        """
+        async with self.connection.execute(
+            "SELECT 1 FROM users WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            user_exists = await cursor.fetchone()
+
+        if not user_exists:
+            await self.create_user(user_id)
 
     async def create_user(self, user_id: int) -> None:
         """
@@ -36,37 +50,31 @@ class DatabaseManager:
 
         :param user_id: The ID of the user whose balance should be returned.
         """
+        await self._create_user_if_not_exists(
+            user_id
+        )  # Ensure the user exists before getting their balance
+
         async with self.connection.execute(
             "SELECT balance FROM users WHERE user_id = ?", (user_id,)
         ) as cursor:
             row = await cursor.fetchone()
 
-        if row is None:
-            # User doesn't exist → insert them with starting balance
-            await self.create_user(user_id)
-            return 0
-
-        return row[0]
+        return row[0]  # Returns the user's balance
 
     async def set_balance(self, user_id: int, amount: int) -> None:
         """
         This function will set the balance of a user.
-        :param user_id: The ID of the user whose balance should be set
 
+        :param user_id: The ID of the user whose balance should be set
+        :param amount: The new balance to set for the user
         """
         if amount < 0:
             raise ValueError("Balance cannot be negative.")
 
-        # Check if user exists
-        async with self.connection.execute(
-            "SELECT 1 FROM users WHERE user_id = ?", (user_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
+        # Ensure the user exists before updating their balance
+        await self._create_user_if_not_exists(user_id)
 
-        if row is None:
-            await self.create_user(user_id)
-
-        # Upsert - either insert the user or update their balance if they exist
+        # Update the balance of the user
         await self.connection.execute(
             """
             INSERT INTO users (user_id, balance)
@@ -83,15 +91,6 @@ class DatabaseManager:
 
         :param user_id: The ID of the user whose game stats should be returned.
         """
-        # Check if user exists in the users table
-        async with self.connection.execute(
-            "SELECT 1 FROM users WHERE user_id = ?", (user_id,)
-        ) as cursor:
-            user_exists = await cursor.fetchone()
-
-        if not user_exists:
-            # If user doesn't exist, you can insert them with default values
-            await self.create_user(user_id)
 
         # If user exists, fetch stats from the game table
         async with self.connection.execute(
@@ -102,3 +101,58 @@ class DatabaseManager:
         return {
             "game_stats": game_stats,
         }
+
+    async def get_user_work_stats(self, user_id: int):
+        """
+        This function will return the work stats of a user.
+
+        :param user_id: The ID of the user whose work stats should be returned.
+        """
+        await self._create_user_if_not_exists(user_id)
+
+        async with self.connection.execute(
+            "SELECT * FROM user_work_stats WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            work_stats = await cursor.fetchone()
+
+        return {"work_stats": work_stats}
+
+    async def set_work_stats(self, user_id: int, value: int, work_type: str):
+        """
+        Updates the user's work stats based on the work type (mining or fishing) and the result.
+        """
+        await self._create_user_if_not_exists(user_id)
+
+        async with self.connection.execute(
+            "SELECT * FROM user_work_stats WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            work_stats = await cursor.fetchone()
+
+        if work_stats:
+            if work_type == "mining":
+                total_mined = work_stats["total_mined"] + 1
+                total_mined_value = work_stats["total_mined_value"] + value
+
+                await self.connection.execute(
+                    """
+                    UPDATE user_work_stats
+                    SET total_mined = ?, total_mined_value = ?
+                    WHERE user_id = ?
+                    """,
+                    (total_mined, total_mined_value, user_id),
+                )
+
+            elif work_type == "fishing":
+                total_fished = work_stats["total_fished"] + 1
+                total_fished_value = work_stats["total_fished_value"] + value
+
+                await self.connection.execute(
+                    """
+                    UPDATE user_work_stats
+                    SET total_fished = ?, total_fished_value = ?
+                    WHERE user_id = ?
+                    """,
+                    (total_fished, total_fished_value, user_id),
+                )
+
+            await self.connection.commit()

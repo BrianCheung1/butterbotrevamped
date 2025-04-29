@@ -161,50 +161,57 @@ class Development(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="reload",
-        description="Reloads a cog.",
-    )
+    @app_commands.command(name="reload", description="Reloads a cog.")
     @app_commands.describe(cog="The name of the cog to reload")
     @app_commands.check(is_owner_check)
     async def reload(
         self,
         interaction: discord.Interaction,
-        cog: Optional[
-            Literal[
-                "development",
-                "moderation",
-            ]
-        ] = None,
+        cog: Optional[Literal["development", "moderation"]] = None,
     ) -> None:
         """Reloads a specific cog, or all cogs if none is provided."""
-        await interaction.response.defer(
-            ephemeral=True
-        )  # Defer the interaction properly first
+        await interaction.response.defer(ephemeral=True)
 
         try:
             if cog:
+                # Reload a specific cog
                 await self.bot.reload_extension(f"cogs.{cog}")
                 embed = discord.Embed(
-                    description=f"Successfully reloaded the `{cog}` cog.",
+                    description=f"✅ Successfully reloaded the `{cog}` cog.",
                     color=0xBEBEFE,
                 )
             else:
-                cogs = [
-                    filename[:-3]
-                    for filename in os.listdir("./cogs")
-                    if filename.endswith(".py")
+                # Reload all cogs
+                cogs_to_reload = [
+                    os.path.splitext(os.path.join(root, file))[0].replace(os.sep, ".")
+                    for root, _, files in os.walk("cogs")
+                    for file in files
+                    if file.endswith(".py") and not file.startswith("_")
                 ]
-                await asyncio.gather(
-                    *[self.bot.reload_extension(f"cogs.{name}") for name in cogs]
-                )
-                embed = discord.Embed(
-                    description="Successfully reloaded all cogs.",
-                    color=0xBEBEFE,
-                )
+
+                failed_cogs = []
+                for name in cogs_to_reload:
+                    try:
+                        await self.bot.reload_extension(name)
+                        self.bot.logger.info(f"Reloaded {name} cog.")
+                    except Exception as e:
+                        failed_cogs.append(f"`{name}`: {e}")
+
+                if failed_cogs:
+                    embed = discord.Embed(
+                        description=f"⚠️ Some cogs failed to reload:\n"
+                        + "\n".join(failed_cogs),
+                        title="Failed to Reload Cogs",
+                        color=0xE02B2B,
+                    )
+                else:
+                    embed = discord.Embed(
+                        description="✅ Successfully reloaded all cogs!", color=0xBEBEFE
+                    )
+
         except Exception as e:
             embed = discord.Embed(
-                description=f"Failed to reload `{cog}` cog.\n```{e}```",
+                description=f"❌ Failed to reload `{cog}` cog.\n```{e}```",
                 color=0xE02B2B,
             )
 
