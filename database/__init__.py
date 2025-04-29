@@ -117,9 +117,9 @@ class DatabaseManager:
 
         return {"work_stats": work_stats}
 
-    async def set_work_stats(self, user_id: int, value: int, work_type: str):
+    async def set_work_stats(self, user_id: int, value: int, xp: int, work_type: str):
         """
-        Updates the user's work stats based on the work type (mining or fishing) and the result.
+        Updates the user's work stats, XP, and handles level-ups based on the work type (mining, fishing, etc.).
         """
         await self._create_user_if_not_exists(user_id)
 
@@ -128,31 +128,41 @@ class DatabaseManager:
         ) as cursor:
             work_stats = await cursor.fetchone()
 
-        if work_stats:
-            if work_type == "mining":
-                total_mined = work_stats["total_mined"] + 1
-                total_mined_value = work_stats["total_mined_value"] + value
+        if not work_stats:
+            return
 
-                await self.connection.execute(
-                    """
-                    UPDATE user_work_stats
-                    SET total_mined = ?, total_mined_value = ?
-                    WHERE user_id = ?
-                    """,
-                    (total_mined, total_mined_value, user_id),
-                )
+        updates = {}
 
-            elif work_type == "fishing":
-                total_fished = work_stats["total_fished"] + 1
-                total_fished_value = work_stats["total_fished_value"] + value
+        # Dynamically get field names based on work_type
+        total_field = f"total_{work_type}"
+        value_field = f"total_{work_type}_value"
+        xp_field = f"{work_type}_xp"
+        next_level_xp_field = f"{work_type}_next_level_xp"
 
-                await self.connection.execute(
-                    """
-                    UPDATE user_work_stats
-                    SET total_fished = ?, total_fished_value = ?
-                    WHERE user_id = ?
-                    """,
-                    (total_fished, total_fished_value, user_id),
-                )
+        # Calculate updated values
+        updates[total_field] = work_stats[total_field] + 1
+        updates[value_field] = work_stats[value_field] + value
+        new_xp = work_stats[xp_field] + xp
+        updates[xp_field] = new_xp
 
-            await self.connection.commit()
+        # Level-up check
+        if new_xp >= work_stats[next_level_xp_field]:
+            new_next_level_xp = int(
+                work_stats[next_level_xp_field] * 1.5
+            )  # Level scaling
+            updates[next_level_xp_field] = new_next_level_xp
+
+        # Prepare the SQL update
+        set_clause = ", ".join([f"{field} = ?" for field in updates.keys()])
+        params = list(updates.values()) + [user_id]
+
+        await self.connection.execute(
+            f"""
+            UPDATE user_work_stats
+            SET {set_clause}
+            WHERE user_id = ?
+            """,
+            params,
+        )
+
+        await self.connection.commit()

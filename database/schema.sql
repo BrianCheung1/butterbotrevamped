@@ -95,13 +95,13 @@ CREATE TABLE IF NOT EXISTS user_bank_stats (
 -- User Work Table
 CREATE TABLE IF NOT EXISTS user_work_stats (
     user_id INTEGER PRIMARY KEY,
-    total_mined INTEGER DEFAULT 0,
-    total_mined_value INTEGER DEFAULT 0,
+    total_mining INTEGER DEFAULT 0,
+    total_mining_value INTEGER DEFAULT 0,
     mining_level INTEGER DEFAULT 1,
     mining_xp INTEGER DEFAULT 0,
     mining_next_level_xp INTEGER DEFAULT 50,
-    total_fished INTEGER DEFAULT 0,
-    total_fished_value INTEGER DEFAULT 0,
+    total_fishing INTEGER DEFAULT 0,
+    total_fishing_value INTEGER DEFAULT 0,
     fishing_level INTEGER DEFAULT 1,
     fishing_xp INTEGER DEFAULT 0,
     fishing_next_level_xp INTEGER DEFAULT 50,

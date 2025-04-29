@@ -21,20 +21,20 @@ async def perform_mining(bot, user_id):
 
     # Randomly determine the value of the mined item within the value range
     value = random.randint(rarity_info["value_range"][0], rarity_info["value_range"][1])
-
+    xp = random.randint(5, 10)
     # Update user's work stats (total mined value and items mined)
-    await bot.database.set_work_stats(user_id, value, "mining")
+    await bot.database.set_work_stats(user_id, value, xp, "mining")
     balance = await bot.database.get_balance(user_id)
     await bot.database.set_balance(user_id, balance + value)
 
-    return mined_item, value, balance + value
+    return mined_item, value, xp, balance + value
 
 
-def create_mining_embed(user, mined_item, value, new_balance):
+def create_mining_embed(user, mined_item, value, xp, new_balance):
     """Generate an embed for the mining result."""
     return discord.Embed(
         title=f"{user.display_name}'s Mining Results",
-        description=f"You mined a **{mined_item}** worth **{value}** coins!\nCurrent balance: **{new_balance}** coins.",
+        description=f"You mined a **{mined_item}** worth **{value}** coins!\nCurrent balance: **{new_balance}** coins. Earned **{xp}** XP.",
         color=discord.Color.green(),
     )
 
@@ -49,9 +49,18 @@ class MineAgainView(discord.ui.View):
     async def mine_again(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        mined_item, value, new_balance = await perform_mining(self.bot, self.user_id)
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "You cannot use this button.", ephemeral=True
+            )
+            return
+        mined_item, value, xp, new_balance = await perform_mining(
+            self.bot, self.user_id
+        )
 
-        embed = create_mining_embed(interaction.user, mined_item, value, new_balance)
+        embed = create_mining_embed(
+            interaction.user, mined_item, value, xp, new_balance
+        )
         await interaction.response.edit_message(embed=embed, view=self)
 
 
@@ -64,12 +73,14 @@ class Mining(commands.Cog):
         await interaction.response.defer()
 
         # Perform the mining logic
-        mined_item, value, new_balance = await perform_mining(
+        mined_item, value, xp, new_balance = await perform_mining(
             self.bot, interaction.user.id
         )
 
         # Create the embed
-        embed = create_mining_embed(interaction.user, mined_item, value, new_balance)
+        embed = create_mining_embed(
+            interaction.user, mined_item, value, xp, new_balance
+        )
 
         # Initialize the MineAgainView with the bot and user_id
         view = MineAgainView(self.bot, interaction.user.id)
