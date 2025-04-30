@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from typing import Optional
-from discord.app_commands import Range
+
 
 
 class Bank(commands.Cog):
@@ -31,7 +31,8 @@ class Bank(commands.Cog):
 
     @app_commands.command(name="deposit", description="Deposit money into your bank.")
     @app_commands.describe(
-        amount="Amount to deposit (choose one option or specify your own amount)"
+        amount="Amount to deposit (choose one option or specify your own amount)",
+        action="Deposit option (all, half, 25%)",
     )
     @app_commands.choices(
         action=[
@@ -108,7 +109,8 @@ class Bank(commands.Cog):
 
     @app_commands.command(name="withdraw", description="Withdraw money from your bank.")
     @app_commands.describe(
-        amount="Amount to withdraw (choose one option or specify your own amount)"
+        amount="Amount to withdraw (choose one option or specify your own amount)",
+        action="Withdrawal option (all, half, 25%)",
     )
     @app_commands.choices(
         action=[
