@@ -17,66 +17,83 @@ class Roll(commands.Cog):
         amount: Optional[app_commands.Range[int, 1, None]] = None,
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
-        """
-        Command to roll a dice against the dealer.
-
-        :param interaction: The interaction object from Discord.
-        """
         if not amount and not action:
             await interaction.response.send_message(
                 "Please specify an amount and an action (all, half, 25%).",
                 ephemeral=True,
             )
             return
+
         await interaction.response.defer()
-        balance = await self.bot.database.user_db.get_balance(interaction.user.id)
-        game_stats = await self.bot.database.game_db.get_user_game_stats(
-            interaction.user.id
-        )
+
+        user_id = interaction.user.id
+        balance = await self.bot.database.user_db.get_balance(user_id)
+        prev_balance = balance
 
         if balance < amount:
             await interaction.followup.send(
                 "You don't have enough balance to roll this amount.", ephemeral=True
             )
             return
+
         if amount <= 0:
             await interaction.followup.send("Amount must be positive.", ephemeral=True)
             return
 
-        # Roll the dice
+        # Fetch current stats and convert to mutable dict
+        stats = dict(
+            (await self.bot.database.game_db.get_user_game_stats(user_id))["game_stats"]
+        )
+
+        # Dice roll
         user_roll = random.randint(0, 100)
         dealer_roll = random.randint(0, 100)
 
-        # Determine the result
+        # Handle game outcome
         if user_roll > dealer_roll:
             result = "You win!"
             color = discord.Color.green()
             balance += amount
             await self.bot.database.game_db.set_user_game_stats(
-                interaction.user.id, GameEventType.GAMBLE, True, amount
+                user_id, GameEventType.GAMBLE, True, amount
             )
-
+            stats["gambles_won"] += 1
         elif user_roll < dealer_roll:
             result = "You lose!"
             color = discord.Color.red()
             balance -= amount
             await self.bot.database.game_db.set_user_game_stats(
-                interaction.user.id, GameEventType.GAMBLE, False, amount
+                user_id, GameEventType.GAMBLE, False, amount
             )
-
+            stats["gambles_lost"] += 1
         else:
             result = "It's a tie!"
             color = discord.Color.gold()
+            # Optionally: track ties separately in DB
 
-        await self.bot.database.user_db.set_balance(interaction.user.id, balance)
-        # Create the embed
+        stats["gambles_played"] += 1
+        await self.bot.database.user_db.set_balance(user_id, balance)
+
+        # Create embed
         embed = discord.Embed(
             title="Dice Roll Result",
             description=f"You rolled: {user_roll}\nDealer rolled: {dealer_roll}\n**{result}**",
             color=color,
         )
+        embed.add_field(
+            name="Prev Balance", value=f"**{prev_balance}** coins", inline=True
+        )
+        embed.add_field(
+            name="Current Balance", value=f"**{balance}** coins", inline=True
+        )
 
-        # Send the embed
+        tied_count = (
+            stats["gambles_played"] - stats["gambles_won"] - stats["gambles_lost"]
+        )
+        embed.set_footer(
+            text=f"Gambles Won: {stats['gambles_won']} | Lost: {stats['gambles_lost']} | Tied: {tied_count}"
+        )
+
         await interaction.followup.send(embed=embed)
 
 
