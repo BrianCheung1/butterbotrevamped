@@ -17,7 +17,7 @@ class WorkStats(commands.Cog):
         """Check the work stats of yourself or another user."""
         user = user or interaction.user
 
-        stats = await self.bot.database.work_stat.get_user_work_stats(user.id)
+        stats = await self.bot.database.work_db.get_user_work_stats(user.id)
         work_stats = dict(stats["work_stats"])
 
         embed = discord.Embed(
