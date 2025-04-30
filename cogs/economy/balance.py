@@ -7,9 +7,16 @@ class Balance(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    def is_owner_check(interaction: discord.Interaction) -> bool:
+        return (
+            interaction.user.id == interaction.client.owner_id
+            or interaction.user.id == 1047615361886982235
+        )
+
     @app_commands.command(
         name="balance", description="Check your balance or someone else's."
     )
+    @app_commands.describe(user="The user to check the balance of.")
     async def balance(
         self, interaction: discord.Interaction, user: discord.User = None
     ):
@@ -32,7 +39,7 @@ class Balance(commands.Cog):
     @app_commands.command(
         name="setbalance", description="Set a user's balance. (Admin only)"
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(is_owner_check)
     async def set_balance(
         self, interaction: discord.Interaction, user: discord.User, amount: int
     ) -> None:

@@ -14,55 +14,116 @@ class GameStats(commands.Cog):
     async def game_stats(
         self, interaction: discord.Interaction, user: discord.User = None
     ) -> None:
-        """
-        This command checks the game stats of a user. If no user is specified, it checks the stats of the command invoker.
-
-        :param interaction: The interaction object from Discord.
-        :param user: The user whose game stats to check. If None, defaults to the command invoker.
-        """
         user = user or interaction.user
 
-        # Get the user's game stats (it will be empty if the user is newly created)
         stats = await self.bot.database.game_db.get_user_game_stats(user.id)
-
         game_stats = stats["game_stats"]
 
-        # Mapping column names to readable names
-        stat_names = [
-            ("Gambles Won", game_stats[1]),
-            ("Gambles Lost", game_stats[2]),
-            ("Gambles Played", game_stats[3]),
-            ("Gambles Total Winnings", game_stats[4]),
-            ("Gambles Total Losses", game_stats[5]),
-            ("Blackjacks Won", game_stats[6]),
-            ("Blackjacks Lost", game_stats[7]),
-            ("Blackjacks Played", game_stats[8]),
-            ("Blackjacks Total Winnings", game_stats[9]),
-            ("Blackjacks Total Losses", game_stats[10]),
-            ("Slots Won", game_stats[11]),
-            ("Slots Lost", game_stats[12]),
-            ("Slots Played", game_stats[13]),
-            ("Slots Total Winnings", game_stats[14]),
-            ("Slots Total Losses", game_stats[15]),
-            ("Wordles Won", game_stats[16]),
-            ("Wordles Lost", game_stats[17]),
-            ("Wordles Played", game_stats[18]),
-            ("Roulette Won", game_stats[19]),
-            ("Roulette Lost", game_stats[20]),
-            ("Roulette Played", game_stats[21]),
-            ("Roulette Total Winnings", game_stats[22]),
-            ("Roulette Total Losses", game_stats[23]),
-            ("Duel Stats (JSON)", game_stats[24]),
+        # Convert list to dict with descriptive keys
+        keys = [
+            "user_id",
+            "rolls_won",
+            "rolls_lost",
+            "rolls_played",
+            "rolls_won_amt",
+            "rolls_lost_amt",
+            "blackjacks_won",
+            "blackjacks_lost",
+            "blackjacks_played",
+            "blackjacks_won_amt",
+            "blackjacks_lost_amt",
+            "slots_won",
+            "slots_lost",
+            "slots_played",
+            "slots_won_amt",
+            "slots_lost_amt",
+            "wordles_won",
+            "wordles_lost",
+            "wordles_played",
+            "roulettes_won",
+            "roulettes_lost",
+            "roulettes_played",
+            "roulettes_won_amt",
+            "roulettes_lost_amt",
+            "duel_stats_json",
         ]
+        stats_dict = dict(zip(keys, game_stats))
 
-        # Make an embed for a clean look
+        # Create a structured, readable embed
         embed = discord.Embed(
-            title=f"{interaction.user.display_name}'s Game Stats",
-            color=discord.Color.blue(),
+            title=f"{user.display_name}'s Game Stats", color=discord.Color.teal()
         )
 
-        for name, value in stat_names:
-            embed.add_field(name=name, value=value, inline=False)
+        def add_game_block(
+            name: str,
+            wins: int,
+            losses: int,
+            played: int,
+            winnings: int = None,
+            losses_amt: int = None,
+        ):
+            embed.add_field(
+                name=f"🎮 {name}",
+                value=(
+                    f"**Won**: {wins} | "
+                    f"**Lost**: {losses} | "
+                    f"**Played**: {played}"
+                    + (
+                        f"\n**Winnings**: {winnings} coins"
+                        if winnings is not None
+                        else ""
+                    )
+                    + (f" | **Losses**: {losses_amt}" if losses_amt is not None else "")
+                ),
+                inline=False,
+            )
+
+        # Add blocks by game
+        add_game_block(
+            "Rolls",
+            stats_dict["rolls_won"],
+            stats_dict["rolls_lost"],
+            stats_dict["rolls_played"],
+            stats_dict["rolls_won_amt"],
+            stats_dict["rolls_lost_amt"],
+        )
+
+        add_game_block(
+            "Blackjacks",
+            stats_dict["blackjacks_won"],
+            stats_dict["blackjacks_lost"],
+            stats_dict["blackjacks_played"],
+            stats_dict["blackjacks_won_amt"],
+            stats_dict["blackjacks_lost_amt"],
+        )
+
+        add_game_block(
+            "Slots",
+            stats_dict["slots_won"],
+            stats_dict["slots_lost"],
+            stats_dict["slots_played"],
+            stats_dict["slots_won_amt"],
+            stats_dict["slots_lost_amt"],
+        )
+
+        add_game_block(
+            "Wordles",
+            stats_dict["wordles_won"],
+            stats_dict["wordles_lost"],
+            stats_dict["wordles_played"],
+        )
+
+        add_game_block(
+            "Roulettes",
+            stats_dict["roulettes_won"],
+            stats_dict["roulettes_lost"],
+            stats_dict["roulettes_played"],
+            stats_dict["roulettes_won_amt"],
+            stats_dict["roulettes_lost_amt"],
+        )
+
+        embed.set_footer(text="🧠 Keep grinding and improve your stats!")
+
         await interaction.response.send_message(embed=embed)
 
 

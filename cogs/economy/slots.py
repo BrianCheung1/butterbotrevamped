@@ -4,6 +4,7 @@ from discord import app_commands
 from discord.ext import commands
 from typing import Optional
 from constants.game_config import GameEventType
+from collections import defaultdict
 
 
 def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional[int]:
@@ -24,11 +25,11 @@ def validate_amount(amount: Optional[int], balance: int) -> Optional[str]:
     return None
 
 
-class Roll(commands.Cog):
+class Slots(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="roll", description="Roll a dice against the dealer")
+    @app_commands.command(name="slots", description="Play a game of slots")
     @app_commands.describe(
         amount="The amount to bet", action="Choose a percentage of your balance"
     )
@@ -39,7 +40,7 @@ class Roll(commands.Cog):
             app_commands.Choice(name="25%", value="25%"),
         ]
     )
-    async def roll(
+    async def slots(
         self,
         interaction: discord.Interaction,
         amount: Optional[app_commands.Range[int, 1, None]] = None,
@@ -64,7 +65,7 @@ class Roll(commands.Cog):
             await interaction.edit_original_response(content=error)
             return
 
-        await perform_roll(
+        await perform_slots(
             self.bot,
             interaction,
             user_id,
@@ -73,65 +74,96 @@ class Roll(commands.Cog):
         )
 
 
-async def perform_roll(bot, interaction, user_id, amount, action):
+async def perform_slots(bot, interaction, user_id, amount, action):
     prev_balance = await bot.database.user_db.get_balance(user_id)
-
-    MAX_ROLL = 100
-    MIN_ROLL = 0
-
-    user_roll = random.randint(MIN_ROLL, MAX_ROLL)
-    dealer_roll = random.randint(MIN_ROLL, MAX_ROLL)
-
     stats_raw = await bot.database.game_db.get_user_game_stats(user_id)
-    stats = dict(stats_raw.get("game_stats", {}))
+    stats = defaultdict(int, stats_raw.get("game_stats", {}))
+    stats["slots_played"] += 1
 
-    # Ensure stat keys exist
-    stats["rolls_played"] = stats.get("rolls_played", 0) + 1
-    stats["rolls_won"] = stats.get("rolls_won", 0)
-    stats["rolls_lost"] = stats.get("rolls_lost", 0)
+    EMOJIS = ["🍎", "🍊", "🍐", "🍋", "🍉", "🍇", "🍓", "🍒"]
+    SPECIAL_EMOJIS = ["🍉", "🍒", "🍐"]
+    board = random.choices(EMOJIS, k=9)
+    board_display = "\n".join(
+        " ".join(board[i : i + 3]) for i in range(0, len(board), 3)
+    )
 
-    if user_roll > dealer_roll:
-        result = "You win!"
+    winning_combinations = [
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8],
+        [0, 3, 6],
+        [1, 4, 7],
+        [2, 5, 8],
+        [0, 4, 8],
+        [2, 4, 6],
+    ]
+    three_line_win = any(
+        board[i] == board[j] == board[k] for i, j, k in winning_combinations
+    )
+    special_fruits_count = {emoji: board.count(emoji) for emoji in SPECIAL_EMOJIS}
+    max_special_fruits = max(special_fruits_count.values(), default=0)
+
+    # Fruit rewards lookup
+    fruit_rewards = {3: 1, 4: 5, 5: 35, 6: 100, 7: 1000, 8: 10000, 9: 100000}
+
+    if three_line_win:
+        multiplier = 2
+        result = f"3 in a line! You win! {amount * 2}"
         color = discord.Color.green()
-        final_balance = prev_balance + amount
-        stats["rolls_won"] += 1
-        await bot.database.game_db.set_user_game_stats(
-            user_id, GameEventType.ROLL, True, amount
+        final_balance = prev_balance + amount * 2
+        stats["slots_won"] += 1
+        win_status = True  # Win status is True when there's a line win
+    elif max_special_fruits >= 3:
+        multiplier = fruit_rewards.get(max_special_fruits, 0)
+
+        # Find the emoji corresponding to the max count of special fruits
+        emoji = next(
+            emoji
+            for emoji, count in special_fruits_count.items()
+            if count == max_special_fruits
         )
-    elif user_roll < dealer_roll:
-        result = "You lose!"
+
+        result = f"{max_special_fruits} {emoji} fruits! You win! {amount * multiplier}"
+        color = discord.Color.green()
+        final_balance = prev_balance + amount * multiplier
+        stats["slots_won"] += 1
+        win_status = True  # Win status is True when special fruits are 3 or more
+    else:
+        result = "No Matches"
         color = discord.Color.red()
         final_balance = prev_balance - amount
-        stats["rolls_lost"] += 1
-        await bot.database.game_db.set_user_game_stats(
-            user_id, GameEventType.ROLL, False, amount
-        )
-    else:
-        result = "It's a tie!"
-        color = discord.Color.gold()
-        final_balance = prev_balance
+        stats["slots_lost"] += 1
+        win_status = False  # Win status is False when there are no matches
 
-    tied_count = stats["rolls_played"] - stats["rolls_won"] - stats["rolls_lost"]
-
+    # Update the user's balance and game stats
     await bot.database.user_db.set_balance(user_id, final_balance)
 
-    embed = discord.Embed(
-        title="🎲 Dice Roll Result",
-        description=f"You rolled: **{user_roll}**\nDealer rolled: **{dealer_roll}**\n\n**{result}**",
-        color=color,
+    # Store the win status correctly for the event
+    await bot.database.game_db.set_user_game_stats(
+        user_id,
+        GameEventType.SLOT,
+        win_status,  # Use the win_status directly here
+        (
+            amount * multiplier if win_status else amount
+        ),  # Multiply only if win_status is True
     )
-    embed.add_field(name="Bet Amount", value=f"{amount} coins", inline=True)
-    embed.add_field(name="Previous Balance", value=f"{prev_balance} coins", inline=True)
-    embed.add_field(name="Current Balance", value=f"{final_balance} coins", inline=True)
+
+    embed = discord.Embed(title="🎰 Slots", color=color)
+    embed.add_field(name="Result", value=result, inline=False)
+    embed.add_field(name="Bet", value=f"{amount} coins", inline=True)
+    embed.add_field(name="Balance Before", value=f"{prev_balance}", inline=True)
+    embed.add_field(name="Balance After", value=f"{final_balance}", inline=True)
     embed.set_footer(
-        text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count}"
+        text=f"Slots Won: {stats['slots_won']} | Slots Lost: {stats['slots_lost']} | Slots Played: {stats['slots_played']}"
     )
 
-    view = RollAgainView(bot, user_id, None if action else amount, action)
-    await interaction.edit_original_response(embed=embed, view=view)
+    view = SlotsAgainView(bot, user_id, None if action else amount, action)
+    view.message = await interaction.edit_original_response(
+        content=board_display, embed=embed, view=view
+    )
 
 
-class RollAgainView(discord.ui.View):
+class SlotsAgainView(discord.ui.View):
     def __init__(self, bot, user_id, amount, action):
         super().__init__(timeout=300)
         self.bot = bot
@@ -149,8 +181,8 @@ class RollAgainView(discord.ui.View):
             self.bot.logger.debug("Message not found when disabling buttons.")
             pass
 
-    @discord.ui.button(label="Roll Again", style=discord.ButtonStyle.green)
-    async def roll_again(
+    @discord.ui.button(label="Spin Again", style=discord.ButtonStyle.green)
+    async def spin_again(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         if interaction.user.id != self.user_id:
@@ -171,8 +203,8 @@ class RollAgainView(discord.ui.View):
             await interaction.edit_original_response(content=error, view=None)
             return
 
-        await perform_roll(self.bot, interaction, self.user_id, amount, self.action)
+        await perform_slots(self.bot, interaction, self.user_id, amount, self.action)
 
 
 async def setup(bot):
-    await bot.add_cog(Roll(bot))
+    await bot.add_cog(Slots(bot))
