@@ -7,14 +7,6 @@ class WorkStats(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    def progress_bar(self, current: int, total: int, length: int = 10) -> str:
-        """Creates a simple text-based progress bar."""
-        if total == 0:
-            total = 1  # Avoid division by zero
-        filled_length = int(length * current // total)
-        bar = "█" * filled_length + "─" * (length - filled_length)
-        return f"[{bar}]"
-
     @app_commands.command(
         name="workstats",
         description="Check your work stats or someone else's.",
@@ -25,7 +17,7 @@ class WorkStats(commands.Cog):
         """Check the work stats of yourself or another user."""
         user = user or interaction.user
 
-        stats = await self.bot.database.get_user_work_stats(user.id)
+        stats = await self.bot.database.work_stat.get_user_work_stats(user.id)
         work_stats = dict(stats["work_stats"])
 
         embed = discord.Embed(
@@ -44,7 +36,6 @@ class WorkStats(commands.Cog):
                 f"**Total Value:** {work_stats.get('total_mining_value', 0)} coins\n"
                 f"**Level:** {work_stats.get('mining_level', 1)}\n"
                 f"**XP:** {mining_xp}/{mining_next_level_xp} "
-                f"{self.progress_bar(mining_xp, mining_next_level_xp)}"
             ),
             inline=False,
         )
@@ -60,7 +51,6 @@ class WorkStats(commands.Cog):
                 f"**Total Value:** {work_stats.get('total_fishing_value', 0)} coins\n"
                 f"**Level:** {work_stats.get('fishing_level', 1)}\n"
                 f"**XP:** {fishing_xp}/{fishing_next_level_xp} "
-                f"{self.progress_bar(fishing_xp, fishing_next_level_xp)}"
             ),
             inline=False,
         )

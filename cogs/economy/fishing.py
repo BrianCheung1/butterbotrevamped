@@ -28,11 +28,11 @@ async def perform_fishing(bot, user_id):
     value = random.randint(rarity_info["value_range"][0], rarity_info["value_range"][1])
     xp_gained = random.randint(5, 10)
     # Update user's work stats (total mined value and items mined)
-    current_xp, next_level_xp = await bot.database.set_work_stats(
+    current_xp, next_level_xp = await bot.database.work_db.set_work_stats(
         user_id, value, xp_gained, "fishing"
     )
-    balance = await bot.database.get_balance(user_id)
-    await bot.database.set_balance(user_id, balance + value)
+    balance = await bot.database.user_db.get_balance(user_id)
+    await bot.database.user_db.set_balance(user_id, balance + value)
 
     return (
         fished_item,

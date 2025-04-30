@@ -23,7 +23,7 @@ class GameStats(commands.Cog):
         user = user or interaction.user
 
         # Get the user's game stats (it will be empty if the user is newly created)
-        stats = await self.bot.database.get_user_game_stats(user.id)
+        stats = await self.bot.database.game_db.get_user_game_stats(user.id)
 
         game_stats = stats["game_stats"]
 

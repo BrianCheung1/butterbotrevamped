@@ -37,22 +37,6 @@ class MyBot(commands.Bot):
                 await db.executescript(file.read())
             await db.commit()
 
-    # async def load_cogs(self) -> None:
-    #     """
-    #     The code in this function is executed whenever the bot will start.
-    #     """
-    #     for file in os.listdir(f"{os.path.realpath(os.path.dirname(__file__))}/cogs"):
-    #         if file.endswith(".py"):
-    #             extension = file[:-3]
-    #             try:
-    #                 await self.load_extension(f"cogs.{extension}")
-    #                 self.logger.info(f"Loaded extension '{extension}'")
-    #             except Exception as e:
-    #                 exception = f"{type(e).__name__}: {e}"
-    #                 self.logger.error(
-    #                     f"Failed to load extension {extension}\n{exception}"
-    #                 )
-
     async def load_cogs(self):
         for root, _, files in os.walk("cogs"):
             for file in files:

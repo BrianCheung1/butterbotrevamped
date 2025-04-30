@@ -20,7 +20,7 @@ class Balance(commands.Cog):
         :param user: The user whose balance to check. If None, defaults to the command invoker.
         """
         user = user or interaction.user
-        balance = await self.bot.database.get_balance(user.id)
+        balance = await self.bot.database.user_db.get_balance(user.id)
 
         embed = discord.Embed(
             title=f"{user.name}'s Balance",
@@ -50,7 +50,7 @@ class Balance(commands.Cog):
             )
             return
 
-        await self.bot.database.set_balance(user.id, amount)
+        await self.bot.database.user_db.set_balance(user.id, amount)
         await interaction.response.send_message(
             f"✅ Set {user.mention}'s balance to {amount} coins."
         )

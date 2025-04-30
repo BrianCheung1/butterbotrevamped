@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS user_steal_stats (
     amount_stolen_by_others INTEGER DEFAULT 0,
     times_stolen_from INTEGER DEFAULT 0,
     amount_gained_from_failed_steals INTEGER DEFAULT 0,
+    last_stolen_from_at TIMESTAMP DEFAULT NULL,
+    last_stole_from_other_at TIMESTAMP DEFAULT NULL,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
