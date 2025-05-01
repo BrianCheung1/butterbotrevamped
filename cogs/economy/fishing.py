@@ -4,15 +4,12 @@ from discord import app_commands
 from discord.ext import commands
 from constants.fishing_config import FISHING_RARITY_TIERS
 from utils.formatting import format_number
+import time
 
 
 async def perform_fishing(bot, user_id):
-    """
-    Perform the fishing operation and return the fished item, value, and new balance.
+    start_time = time.time()  # Record the start time for database operation
 
-    :param bot: The bot instance.
-    :param user_id: The ID of the user performing the fishing operation.
-    """
     # Weighted Random Selection of Rarity using random.choices
     rarities, weights = zip(
         *[(rarity, info["weight"]) for rarity, info in FISHING_RARITY_TIERS.items()]
@@ -28,12 +25,19 @@ async def perform_fishing(bot, user_id):
     # Randomly determine the value of the fished item within the value range
     value = random.randint(rarity_info["value_range"][0], rarity_info["value_range"][1])
     xp_gained = random.randint(5, 10)
-    # Update user's work stats (total mined value and items mined)
+
+    # Update user's work stats (total fished value and items fished)
     current_xp, next_level_xp = await bot.database.work_db.set_work_stats(
         user_id, value, xp_gained, "fishing"
     )
     balance = await bot.database.user_db.get_balance(user_id)
     await bot.database.user_db.set_balance(user_id, balance + value)
+
+    end_time = time.time()  # Record the end time for database operation
+    db_operation_time = (
+        end_time - start_time
+    )  # Calculate the time taken for the database operation
+    bot.logger.info(f"Database operation took {db_operation_time:.4f} seconds")
 
     return (
         fished_item,
@@ -69,35 +73,96 @@ class FishAgainView(discord.ui.View):
         super().__init__()
         self.bot = bot
         self.user_id = user_id
+        self.clicks = 0
+        self.correct_color = None
+        self.fish_again_btn = discord.ui.Button(
+            label="Fish Again", style=discord.ButtonStyle.green
+        )
+        self.fish_again_btn.callback = self.fish_again_button
+        self.add_item(self.fish_again_btn)
 
-    @discord.ui.button(label="Fish Again", style=discord.ButtonStyle.green)
-    async def fish_again(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        """
-        Button callback to perform fishing again.
+    async def fish_again_button(self, interaction: discord.Interaction):
+        start_time = time.time()  # Record the start time for the message edit
 
-        :param interaction: The interaction object from Discord.
-        :param button: The button that was clicked."""
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(
                 "You cannot use this button.", ephemeral=True
             )
             return
-        fished_item, value, current_xp, xp_gained, next_level_xp, new_balance = (
-            await perform_fishing(self.bot, self.user_id)
-        )
 
-        embed = create_fishing_embed(
-            interaction.user,
-            fished_item,
-            value,
-            current_xp,
-            xp_gained,
-            next_level_xp,
-            new_balance,
-        )
-        await interaction.response.edit_message(embed=embed, view=self)
+        self.clicks += 1
+
+        if self.clicks >= 500:
+            self.fish_again_btn.disabled = True
+            self.correct_color = random.choice(["Red", "Green", "Blue"])
+            self.add_color_buttons()
+            await interaction.response.edit_message(
+                content=f"Pick **{self.correct_color}** to fish again!", view=self
+            )
+
+        else:
+            (
+                fished_item,
+                value,
+                current_xp,
+                xp_gained,
+                next_level_xp,
+                new_balance,
+            ) = await perform_fishing(self.bot, self.user_id)
+
+            embed = create_fishing_embed(
+                interaction.user,
+                fished_item,
+                value,
+                current_xp,
+                xp_gained,
+                next_level_xp,
+                new_balance,
+            )
+
+            await interaction.response.edit_message(embed=embed, view=self)
+
+        end_time = time.time()  # Record the end time for the message edit
+        message_edit_time = (
+            end_time - start_time
+        )  # Calculate the time taken for the message edit
+        self.bot.logger.info(f"Message edit took {message_edit_time:.4f} seconds")
+
+    def add_color_buttons(self):
+        # Create buttons dynamically
+        for color, style in [
+            ("Green", discord.ButtonStyle.green),
+            ("Red", discord.ButtonStyle.red),
+            ("Blue", discord.ButtonStyle.blurple),
+        ]:
+            button = discord.ui.Button(label=color, style=style)
+            button.callback = lambda interaction, c=color: self.handle_color_choice(
+                interaction, c
+            )
+            self.add_item(button)
+
+    async def handle_color_choice(
+        self, interaction: discord.Interaction, chosen_color: str
+    ):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "You cannot use this button.", ephemeral=True
+            )
+            return
+
+        if chosen_color == self.correct_color:
+            self.fish_again_btn.disabled = False
+            self.clicks = 0
+            self.clear_items()  # Reset the view
+            self.__init__(self.bot, self.user_id)  # Re-initialize the buttons
+            await interaction.response.edit_message(
+                content="Correct! You can fish again.", view=self
+            )
+        else:
+            await interaction.response.edit_message(
+                content="Wrong Color",
+                view=None,
+            )
 
 
 class Fishing(commands.Cog):
@@ -129,10 +194,10 @@ class Fishing(commands.Cog):
             new_balance,
         )
 
-        # Initialize the MineAgainView with the bot and user_id
+        # Initialize the FishAgainView with the bot and user_id
         view = FishAgainView(self.bot, interaction.user.id)
 
-        # Send the embed with the MineAgainView
+        # Send the embed with the FishAgainView
         await interaction.followup.send(embed=embed, view=view)
 
 

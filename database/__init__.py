@@ -86,11 +86,4 @@ class DatabaseManager:
         async with self.connection.execute(query) as cursor:
             rows = await cursor.fetchall()
 
-        # Format the data in a more useful way (can adjust based on your needs)
-        leaderboard = []
-        for row in rows:
-            entry = {"user_id": row["user_id"], "score": row[1]}
-            if leaderboard_type in ("mining_level", "fishing_level"):
-                entry["xp"] = row[2]
-            leaderboard.append(entry)
-        return leaderboard
+        return rows
