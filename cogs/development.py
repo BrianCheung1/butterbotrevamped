@@ -377,15 +377,18 @@ class Development(commands.Cog):
         else:
             line_number = "Unknown Line"
 
-        # Log the error with line number
+        command_name = interaction.command.name if interaction.command else "unknown"
+        guild_name = interaction.guild.name if interaction.guild else "DMs"
+        guild_id = interaction.guild.id if interaction.guild else "N/A"
+
         if interaction.guild:
             self.bot.logger.error(
-                f"Error in /{interaction.command.name} command: {error} in {interaction.guild.name} (ID: {interaction.guild.id}) "
+                f"Error in /{command_name} command: {error} in {guild_name} (ID: {guild_id}) "
                 f"by {interaction.user} (ID: {interaction.user.id}) at line {line_number}"
             )
         else:
             self.bot.logger.error(
-                f"Error in /{interaction.command.name} command: {error} in DMs by {interaction.user} (ID: {interaction.user.id}) "
+                f"Error in /{command_name} command: {error} in DMs by {interaction.user} (ID: {interaction.user.id}) "
                 f"at line {line_number}"
             )
 

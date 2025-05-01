@@ -47,3 +47,50 @@ class DatabaseManager:
                 await self.connection.commit()
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
+
+    async def get_leaderboard_data(self, leaderboard_type: str) -> list:
+        """
+        Get leaderboard data for a specific category (e.g., balance, mining level, etc.).
+
+        :param leaderboard_type: Type of leaderboard ('balance', 'mining_level', 'fishing_level', 'bank_balance')
+        :param limit: How many entries to return (default is 10)
+        :return: List of leaderboard entries
+        """
+        LEADERBOARD_QUERIES = {
+            "balance": (
+                "SELECT user_id, balance FROM users "
+                "WHERE balance > 0 "
+                "ORDER BY balance DESC LIMIT 100"
+            ),
+            "mining_level": (
+                "SELECT user_id, mining_level, mining_xp FROM user_work_stats "
+                "WHERE mining_level > 1 OR mining_xp > 0 "
+                "ORDER BY mining_level DESC, mining_xp DESC LIMIT 100"
+            ),
+            "fishing_level": (
+                "SELECT user_id, fishing_level, fishing_xp FROM user_work_stats "
+                "WHERE fishing_level > 1 OR fishing_xp > 0 "
+                "ORDER BY fishing_level DESC, fishing_xp DESC LIMIT 100"
+            ),
+            "bank_balance": (
+                "SELECT user_id, bank_balance FROM user_bank_stats "
+                "WHERE bank_balance > 0 "
+                "ORDER BY bank_balance DESC LIMIT 100"
+            ),
+        }
+
+        query = LEADERBOARD_QUERIES.get(leaderboard_type)
+        if not query:
+            raise ValueError("Invalid leaderboard type.")
+
+        async with self.connection.execute(query) as cursor:
+            rows = await cursor.fetchall()
+
+        # Format the data in a more useful way (can adjust based on your needs)
+        leaderboard = []
+        for row in rows:
+            entry = {"user_id": row["user_id"], "score": row[1]}
+            if leaderboard_type in ("mining_level", "fishing_level"):
+                entry["xp"] = row[2]
+            leaderboard.append(entry)
+        return leaderboard

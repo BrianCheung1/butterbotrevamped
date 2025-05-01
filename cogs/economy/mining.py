@@ -1,9 +1,9 @@
 import discord
 import random
-import time
 from discord import app_commands
 from discord.ext import commands
 from constants.mining_config import MINING_RARITY_TIERS
+from utils.formatting import format_number
 
 
 async def perform_mining(bot, user_id):
@@ -59,9 +59,13 @@ def create_mining_embed(
     """
     return discord.Embed(
         title=f"{user.display_name}'s Mining Results",
-        description=f"You mined a **{mined_item}** worth **{value}** coins!\nCurrent balance: **{new_balance}** coins. Earned **{xp_gained}** XP.\nXP Progress: {current_xp}/{next_level_xp}",
+        description=f"You mined a **{mined_item}** worth **${format_number(value)}**!\nCurrent balance: **${format_number(new_balance)}**. Earned **{xp_gained}** XP.\nXP Progress: {current_xp}/{next_level_xp}",
         color=discord.Color.green(),
     )
+
+
+import discord
+import random
 
 
 class MineAgainView(discord.ui.View):
@@ -69,21 +73,33 @@ class MineAgainView(discord.ui.View):
         super().__init__()
         self.bot = bot
         self.user_id = user_id
+        self.clicks = 0
+        self.correct_color = None
+        self.mine_again_btn = discord.ui.Button(
+            label="Mine Again", style=discord.ButtonStyle.green
+        )
+        self.mine_again_btn.callback = self.mine_again_button
+        self.add_item(self.mine_again_btn)
 
-    @discord.ui.button(label="Mine Again", style=discord.ButtonStyle.green)
-    async def mine_again(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        """
-        Button callback to perform mining again.
-
-        :param interaction: The interaction object from Discord.
-        :param button: The button that was clicked."""
+    async def mine_again_button(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(
                 "You cannot use this button.", ephemeral=True
             )
             return
+
+        self.clicks += 1
+
+        if self.clicks >= 500:
+            self.mine_again_btn.disabled = True
+            self.correct_color = random.choice(["Red", "Green", "Blue"])
+            self.add_color_buttons()
+            await interaction.response.edit_message(
+                content=f"Pick **{self.correct_color}** to mine again!", view=self
+            )
+            return
+
+        # Assume perform_mining & create_mining_embed are defined elsewhere
         mined_item, value, current_xp, xp_gained, next_level_xp, new_balance = (
             await perform_mining(self.bot, self.user_id)
         )
@@ -98,6 +114,42 @@ class MineAgainView(discord.ui.View):
             new_balance,
         )
         await interaction.response.edit_message(embed=embed, view=self)
+
+    def add_color_buttons(self):
+        # Create buttons dynamically
+        for color, style in [
+            ("Green", discord.ButtonStyle.green),
+            ("Red", discord.ButtonStyle.red),
+            ("Blue", discord.ButtonStyle.blurple),
+        ]:
+            button = discord.ui.Button(label=color, style=style)
+            button.callback = lambda interaction, c=color: self.handle_color_choice(
+                interaction, c
+            )
+            self.add_item(button)
+
+    async def handle_color_choice(
+        self, interaction: discord.Interaction, chosen_color: str
+    ):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "You cannot use this button.", ephemeral=True
+            )
+            return
+
+        if chosen_color == self.correct_color:
+            self.mine_again_btn.disabled = False
+            self.clicks = 0
+            self.clear_items()  # Reset the view
+            self.__init__(self.bot, self.user_id)  # Re-initialize the buttons
+            await interaction.response.edit_message(
+                content="Correct! You can mine again.", view=self
+            )
+        else:
+            await interaction.response.edit_message(
+                content="Wrong Color",
+                view=None,
+            )
 
 
 class Mining(commands.Cog):

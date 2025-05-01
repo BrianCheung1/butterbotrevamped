@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils.formatting import format_number
 
 
 class WorkStats(commands.Cog):
@@ -33,7 +34,7 @@ class WorkStats(commands.Cog):
             name="⛏️ __Mining Stats__",
             value=(
                 f"**Total Mining:** {work_stats.get('total_mining', 0)}\n"
-                f"**Total Value:** {work_stats.get('total_mining_value', 0)} coins\n"
+                f"**Total Value:** ${format_number(work_stats.get('total_mining_value', 0))}\n"
                 f"**Level:** {work_stats.get('mining_level', 1)}\n"
                 f"**XP:** {mining_xp}/{mining_next_level_xp} "
             ),
@@ -48,7 +49,7 @@ class WorkStats(commands.Cog):
             name="🎣 __Fishing Stats__",
             value=(
                 f"**Total Fishing:** {work_stats.get('total_fishing', 0)}\n"
-                f"**Total Value:** {work_stats.get('total_fishing_value', 0)} coins\n"
+                f"**Total Value:** ${format_number(work_stats.get('total_fishing_value', 0))}\n"
                 f"**Level:** {work_stats.get('fishing_level', 1)}\n"
                 f"**XP:** {fishing_xp}/{fishing_next_level_xp} "
             ),

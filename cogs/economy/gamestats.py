@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils.formatting import format_number
 
 
 class GameStats(commands.Cog):
@@ -69,11 +70,15 @@ class GameStats(commands.Cog):
                     f"**Lost**: {losses} | "
                     f"**Played**: {played}"
                     + (
-                        f"\n**Winnings**: {winnings} coins"
+                        f"\n**Winnings**: ${format_number(winnings)}"
                         if winnings is not None
                         else ""
                     )
-                    + (f" | **Losses**: {losses_amt}" if losses_amt is not None else "")
+                    + (
+                        f" | **Losses**: ${format_number(losses_amt)}"
+                        if losses_amt is not None
+                        else ""
+                    )
                 ),
                 inline=False,
             )

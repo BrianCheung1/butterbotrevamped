@@ -5,6 +5,7 @@ from datetime import timezone
 from discord import app_commands
 from discord.ext import commands
 from constants.steal_config import StealEventType
+from utils.formatting import format_number
 
 
 class Steal(commands.Cog):
@@ -51,13 +52,13 @@ class Steal(commands.Cog):
 
         if target_balance <= MIN_BALANCE_TO_STEAL:
             await interaction.response.send_message(
-                f"{user.mention} has no coins to steal!", ephemeral=True
+                f"{user.mention} has no money to steal!", ephemeral=True
             )
             return
 
         if thief_balance <= MIN_BALANCE_TO_STEAL:
             await interaction.response.send_message(
-                "You have no coins to steal!", ephemeral=True
+                "You have no money to steal!", ephemeral=True
             )
             return
 
@@ -115,7 +116,7 @@ class Steal(commands.Cog):
 
             embed = discord.Embed(
                 title="💰 Theft Success!",
-                description=f"You stole **{stolen_amount:,} coins** from {user.mention}!",
+                description=f"You stole **${format_number(stolen_amount)}** from {user.mention}!",
                 color=discord.Color.green(),
             )
         else:
@@ -135,7 +136,7 @@ class Steal(commands.Cog):
 
             embed = discord.Embed(
                 title="🚨 Theft Failed!",
-                description=f"You tried to steal from {user.mention} and got caught! You lost **{lost_amount:,} coins**.",
+                description=f"You tried to steal from {user.mention} and got caught! You lost **${format_number(lost_amount)}**.",
                 color=discord.Color.red(),
             )
 

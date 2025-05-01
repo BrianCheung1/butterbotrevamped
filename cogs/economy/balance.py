@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils.formatting import format_number
 
 
 class Balance(commands.Cog):
@@ -28,10 +29,11 @@ class Balance(commands.Cog):
         """
         user = user or interaction.user
         balance = await self.bot.database.user_db.get_balance(user.id)
+        
 
         embed = discord.Embed(
             title=f"{user.name}'s Balance",
-            description=f"💰 {balance} coins",
+            description=f"💰 ${format_number(balance)}",
             color=discord.Color.green(),
         )
         await interaction.response.send_message(embed=embed)
@@ -59,7 +61,7 @@ class Balance(commands.Cog):
 
         await self.bot.database.user_db.set_balance(user.id, amount)
         await interaction.response.send_message(
-            f"✅ Set {user.mention}'s balance to {amount} coins."
+            f"✅ Set {user.mention}'s balance to ${format_number(amount)}."
         )
 
 

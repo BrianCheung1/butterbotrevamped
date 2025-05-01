@@ -4,6 +4,7 @@ from discord import app_commands
 from discord.ext import commands
 from typing import Optional
 from constants.game_config import GameEventType
+from utils.formatting import format_number
 
 
 def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional[int]:
@@ -20,7 +21,7 @@ def validate_amount(amount: Optional[int], balance: int) -> Optional[str]:
     if amount is None or amount <= 0:
         return "Invalid roll amount."
     if amount > balance:
-        return f"You don't have enough balance to roll this amount. Current balance is {balance}."
+        return f"You don't have enough balance to roll this amount. Current balance is ${format_number(balance)}."
     return None
 
 
@@ -120,15 +121,19 @@ async def perform_roll(bot, interaction, user_id, amount, action):
         description=f"You rolled: **{user_roll}**\nDealer rolled: **{dealer_roll}**\n\n**{result}**",
         color=color,
     )
-    embed.add_field(name="Bet Amount", value=f"{amount} coins", inline=True)
-    embed.add_field(name="Previous Balance", value=f"{prev_balance} coins", inline=True)
-    embed.add_field(name="Current Balance", value=f"{final_balance} coins", inline=True)
+    embed.add_field(name="Bet Amount", value=f"${format_number(amount)}", inline=True)
+    embed.add_field(
+        name="Previous Balance", value=f"${format_number(prev_balance)}", inline=True
+    )
+    embed.add_field(
+        name="Current Balance", value=f"${format_number(final_balance)}", inline=True
+    )
     embed.set_footer(
         text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count}"
     )
 
     view = RollAgainView(bot, user_id, None if action else amount, action)
-    await interaction.edit_original_response(embed=embed, view=view)
+    view.message = await interaction.edit_original_response(embed=embed, view=view)
 
 
 class RollAgainView(discord.ui.View):

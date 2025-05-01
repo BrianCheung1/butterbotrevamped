@@ -3,6 +3,7 @@ import random
 from discord import app_commands
 from discord.ext import commands
 from constants.fishing_config import FISHING_RARITY_TIERS
+from utils.formatting import format_number
 
 
 async def perform_fishing(bot, user_id):
@@ -58,7 +59,7 @@ def create_fishing_embed(
     """
     return discord.Embed(
         title=f"{user.display_name}'s Fishing Results",
-        description=f"You fished a **{fished_item}** worth **{value}** coins!\nCurrent balance: **{new_balance}** coins. Earned **{xp_gained}** XP.\nXP Progress: {current_xp}/{next_level_xp}",
+        description=f"You fished a **{fished_item}** worth **${format_number(value)}**!\nCurrent balance: **${format_number(new_balance)}**. Earned **{xp_gained}** XP.\nXP Progress: {current_xp}/{next_level_xp}",
         color=discord.Color.green(),
     )
 

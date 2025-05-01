@@ -5,6 +5,7 @@ from discord.ext import commands
 from typing import Optional
 from constants.game_config import GameEventType
 from collections import defaultdict
+from utils.formatting import format_number
 
 
 def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional[int]:
@@ -21,7 +22,7 @@ def validate_amount(amount: Optional[int], balance: int) -> Optional[str]:
     if amount is None or amount <= 0:
         return "Invalid roll amount."
     if amount > balance:
-        return f"You don't have enough balance to roll this amount. Current balance is {balance}."
+        return f"You don't have enough balance to roll this amount. Current balance is ${format_number(balance)}."
     return None
 
 
@@ -123,7 +124,7 @@ async def perform_slots(bot, interaction, user_id, amount, action):
             if count == max_special_fruits
         )
 
-        result = f"{max_special_fruits} {emoji} fruits! You win! {amount * multiplier}"
+        result = f"{max_special_fruits} {emoji} fruits! You win! ${format_number(amount * multiplier)}"
         color = discord.Color.green()
         final_balance = prev_balance + amount * multiplier
         stats["slots_won"] += 1
@@ -150,9 +151,13 @@ async def perform_slots(bot, interaction, user_id, amount, action):
 
     embed = discord.Embed(title="🎰 Slots", color=color)
     embed.add_field(name="Result", value=result, inline=False)
-    embed.add_field(name="Bet", value=f"{amount} coins", inline=True)
-    embed.add_field(name="Balance Before", value=f"{prev_balance}", inline=True)
-    embed.add_field(name="Balance After", value=f"{final_balance}", inline=True)
+    embed.add_field(name="Bet", value=f"${format_number(amount)}", inline=True)
+    embed.add_field(
+        name="Balance Before", value=f"${format_number(prev_balance)}", inline=True
+    )
+    embed.add_field(
+        name="Balance After", value=f"${format_number(final_balance)}", inline=True
+    )
     embed.set_footer(
         text=f"Slots Won: {stats['slots_won']} | Slots Lost: {stats['slots_lost']} | Slots Played: {stats['slots_played']}"
     )
