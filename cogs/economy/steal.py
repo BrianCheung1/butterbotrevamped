@@ -1,33 +1,16 @@
 import discord
 import random
 import datetime
-from datetime import timezone
 from discord import app_commands
 from discord.ext import commands
 from constants.steal_config import StealEventType
 from utils.formatting import format_number
+from utils.cooldown import get_cooldown_response
 
 
 class Steal(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    @staticmethod
-    def get_cooldown_response(
-        last_time_str: str, cooldown: datetime.timedelta, prefix: str
-    ) -> str | None:
-        last_time = datetime.datetime.strptime(
-            last_time_str, "%Y-%m-%d %H:%M:%S"
-        ).replace(tzinfo=timezone.utc)
-        now = datetime.datetime.now(timezone.utc)
-        time_diff = now - last_time
-
-        if time_diff < cooldown:
-            next_available_time = last_time + cooldown
-            relative = discord.utils.format_dt(next_available_time, style="R")
-            absolute = discord.utils.format_dt(next_available_time, style="F")
-            return f"{prefix} Try again {relative} ({absolute})."
-        return None
 
     @app_commands.command(name="steal", description="Steal from another user")
     async def steal(self, interaction: discord.Interaction, user: discord.User):
@@ -77,7 +60,7 @@ class Steal(commands.Cog):
         last_stole_from_other_at = thief_stats.get("last_stole_from_other_at")
 
         if last_stolen_from_at:
-            msg = self.get_cooldown_response(
+            msg = get_cooldown_response(
                 last_stolen_from_at,
                 STOLEN_FROM_COOLDOWN,
                 f"{user.mention} was stolen from recently.",
@@ -87,7 +70,7 @@ class Steal(commands.Cog):
                 return
 
         if last_stole_from_other_at:
-            msg = self.get_cooldown_response(
+            msg = get_cooldown_response(
                 last_stole_from_other_at, STEAL_COOLDOWN, "You just tried stealing!"
             )
             if msg:
