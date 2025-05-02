@@ -9,28 +9,50 @@ class Bank(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    def build_bank_embed(
+        self, user: discord.User, bank_stats: dict, bank_balance: int
+    ) -> discord.Embed:
+        return discord.Embed(
+            title=f"{user.name}'s Bank Balance",
+            description=(
+                f"🏦 Bank Balance: ${format_number(bank_balance)}\n"
+                f"🏦 Bank Capacity: ${format_number(bank_stats['bank_cap'])}\n"
+                f"🏦 Bank Level: {bank_stats['bank_level']}"
+            ),
+            color=discord.Color.blue(),
+        )
+
+    def build_transaction_embed(
+        self, action: str, amount: int, new_bank: int, new_wallet: int
+    ) -> discord.Embed:
+        return discord.Embed(
+            title=f"{action} Successful",
+            description=(
+                f"{action}ed ${format_number(amount)}.\n"
+                f"🏦 Bank: ${format_number(new_bank)}\n"
+                f"💰 Wallet: ${format_number(new_wallet)}"
+            ),
+            color=discord.Color.green(),
+        )
+
+    async def get_user_stats(self, user_id: int) -> tuple[int, dict]:
+        balance = await self.bot.database.user_db.get_balance(user_id)
+        bank_raw = await self.bot.database.bank_db.get_user_bank_stats(user_id)
+        bank_stats = dict(bank_raw["bank_stats"])
+        return balance, bank_stats
+
     @app_commands.command(name="bankbalance", description="Check your bank balance.")
     async def bank_balance(
         self, interaction: discord.Interaction, user: Optional[discord.User] = None
     ) -> None:
-        """
-        This command checks the bank balance of a user. If no user is specified, it checks the balance of the command invoker.
-
-        :param interaction: The interaction object from Discord.
-        :param user: The user whose bank balance to check. If None, defaults to the command invoker.
-        """
         user = user or interaction.user
         bank_balance = await self.bot.database.bank_db.get_bank_balance(user.id)
-        raw_bank_stats = await self.bot.database.bank_db.get_user_bank_stats(user.id)
-        bank_stats = dict(raw_bank_stats["bank_stats"])
-        embed = discord.Embed(
-            title=f"{user.name}'s Bank Balance",
-            description=f"🏦 Bank Balance ${format_number(bank_balance)}\n"
-            f"🏦 Bank Capacity: ${format_number(bank_stats['bank_cap'])}\n"
-            f"🏦 Bank Level: {bank_stats['bank_level']}\n",
-            color=discord.Color.blue(),
+        _, bank_stats = await self.get_user_stats(user.id)
+
+        embed = self.build_bank_embed(user, bank_stats, bank_balance)
+        await interaction.response.send_message(
+            embed=embed, ephemeral=(user == interaction.user)
         )
-        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="deposit", description="Deposit money into your bank.")
     @app_commands.describe(
@@ -50,13 +72,9 @@ class Bank(commands.Cog):
         amount: Optional[app_commands.Range[int, 1, None]] = None,
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
-        """
-        Deposits money into the user's bank account.
-        """
         user = interaction.user
-        balance = await self.bot.database.user_db.get_balance(user.id)
-        raw_bank_stats = await self.bot.database.bank_db.get_user_bank_stats(user.id)
-        bank_stats = dict(raw_bank_stats["bank_stats"])
+        balance, bank_stats = await self.get_user_stats(user.id)
+        available_space = bank_stats["bank_cap"] - bank_stats["bank_balance"]
 
         if balance <= 0:
             await interaction.response.send_message(
@@ -66,61 +84,47 @@ class Bank(commands.Cog):
 
         if not action and not amount:
             await interaction.response.send_message(
-                "You must specify an amount or choose a deposit option.",
-                ephemeral=True,
+                "You must specify an amount or choose a deposit option.", ephemeral=True
             )
             return
 
         # Determine amount to deposit
         if action:
-            if action.value == "all":
-                amount_to_deposit = balance
-            elif action.value == "half":
-                amount_to_deposit = balance // 2
-            elif action.value == "25%":
-                amount_to_deposit = balance // 4
-            else:
-                await interaction.response.send_message(
-                    "Invalid deposit option selected.", ephemeral=True
-                )
-                return
-            if amount_to_deposit > bank_stats["bank_cap"]:
-                amount_to_deposit = bank_stats["bank_cap"] - bank_stats["bank_balance"]
+            percent_map = {"all": 1, "half": 0.5, "25%": 0.25}
+            amount_to_deposit = int(balance * percent_map.get(action.value, 0))
         else:
             if amount > balance:
                 await interaction.response.send_message(
-                    f"You cannot deposit more than your current balance. Balance: ${format_number(balance)}",
+                    f"You cannot deposit more than your current balance (${format_number(balance)}).",
                     ephemeral=True,
                 )
                 return
-            if (
-                amount > bank_stats["bank_cap"]
-                or amount + bank_stats["bank_balance"] > bank_stats["bank_cap"]
-            ):
-                await interaction.response.send_message(
-                    f"You cannot deposit more than your bank capacity.\nBank Balance: ${format_number(bank_stats["bank_balance"])}\nBank Capacity: ${format_number(bank_stats['bank_cap'])}",
-                    ephemeral=True,
-                )
-                return
-
             amount_to_deposit = amount
 
-        # Update balances
-        await self.bot.database.bank_db.set_bank_balance(
-            user.id, bank_stats["bank_balance"] + amount_to_deposit
-        )
+        # Ensure it fits in the bank
+        if amount_to_deposit > available_space:
+            amount_to_deposit = available_space
+
+        if amount_to_deposit <= 0:
+            await interaction.response.send_message(
+                f"You cannot deposit more than your bank capacity.\nCurrent Bank Balance: ${format_number(bank_stats['bank_balance'])}.\nCurrent Bank Cap: ${format_number(bank_stats['bank_balance'])}",
+                ephemeral=True,
+            )
+            return
+
+        # Update DB
         await self.bot.database.user_db.set_balance(
             user.id, balance - amount_to_deposit
         )
+        await self.bot.database.bank_db.set_bank_balance(
+            user.id, bank_stats["bank_balance"] + amount_to_deposit
+        )
 
-        embed = discord.Embed(
-            title="Deposit Successful",
-            description=(
-                f"Deposited ${format_number(amount_to_deposit)} into your bank.\n"
-                f"🏦 Bank: ${format_number(bank_stats["bank_balance"] + amount_to_deposit)}\n"
-                f"💰 Wallet: ${format_number(balance - amount_to_deposit)}"
-            ),
-            color=discord.Color.green(),
+        embed = self.build_transaction_embed(
+            action="Deposit",
+            amount=amount_to_deposit,
+            new_bank=bank_stats["bank_balance"] + amount_to_deposit,
+            new_wallet=balance - amount_to_deposit,
         )
         await interaction.response.send_message(embed=embed)
 
@@ -142,15 +146,11 @@ class Bank(commands.Cog):
         amount: Optional[app_commands.Range[int, 1, None]] = None,
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
-        """
-        Withdraws money from the user's bank account.
-        """
         user = interaction.user
-        balance = await self.bot.database.user_db.get_balance(user.id)
-        raw_bank_stats = await self.bot.database.bank_db.get_user_bank_stats(user.id)
-        bank_stats = dict(raw_bank_stats["bank_stats"])
+        balance, bank_stats = await self.get_user_stats(user.id)
+        bank_balance = bank_stats["bank_balance"]
 
-        if bank_stats["bank_balance"] <= 0:
+        if bank_balance <= 0:
             await interaction.response.send_message(
                 "You have no money in your bank to withdraw.", ephemeral=True
             )
@@ -165,43 +165,36 @@ class Bank(commands.Cog):
 
         # Determine amount to withdraw
         if action:
-            if action.value == "all":
-                amount_to_withdraw = bank_stats["bank_balance"]
-            elif action.value == "half":
-                amount_to_withdraw = bank_stats["bank_balance"] // 2
-            elif action.value == "25%":
-                amount_to_withdraw = bank_stats["bank_balance"] // 4
-            else:
-                await interaction.response.send_message(
-                    "Invalid withdrawal option selected.", ephemeral=True
-                )
-                return
+            percent_map = {"all": 1, "half": 0.5, "25%": 0.25}
+            amount_to_withdraw = int(bank_balance * percent_map.get(action.value, 0))
         else:
-            if amount > bank_stats["bank_balance"]:
+            if amount > bank_balance:
                 await interaction.response.send_message(
-                    f"You cannot withdraw more than your bank balance.\nBank Balance: ${format_number(bank_balance)}",
+                    f"You cannot withdraw more than your bank balance (${format_number(bank_balance)}).",
                     ephemeral=True,
                 )
                 return
             amount_to_withdraw = amount
 
-        # Perform the transaction
+        if amount_to_withdraw <= 0:
+            await interaction.response.send_message(
+                "Withdrawal amount must be greater than zero.", ephemeral=True
+            )
+            return
+
+        # Update DB
         await self.bot.database.bank_db.set_bank_balance(
-            user.id, bank_stats["bank_balance"] - amount_to_withdraw
+            user.id, bank_balance - amount_to_withdraw
         )
         await self.bot.database.user_db.set_balance(
             user.id, balance + amount_to_withdraw
         )
 
-        # Confirmation embed
-        embed = discord.Embed(
-            title="Withdrawal Successful",
-            description=(
-                f"Withdrew ${format_number(amount_to_withdraw)} from your bank.\n"
-                f"🏦 Bank: ${format_number(bank_stats["bank_balance"] - amount_to_withdraw)}\n"
-                f"💰 Wallet: ${format_number(balance + amount_to_withdraw)}"
-            ),
-            color=discord.Color.green(),
+        embed = self.build_transaction_embed(
+            action="Withdrawal",
+            amount=amount_to_withdraw,
+            new_bank=bank_balance - amount_to_withdraw,
+            new_wallet=balance + amount_to_withdraw,
         )
         await interaction.response.send_message(embed=embed)
 
