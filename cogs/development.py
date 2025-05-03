@@ -363,33 +363,21 @@ class Development(commands.Cog):
         :param interaction: The interaction of the command.
         :param error: The error that occurred.
         """
-        # Get the traceback of the error
-        tb = traceback.format_exception(type(error), error, error.__traceback__)
-
-        # Check if traceback is valid (i.e., non-empty)
-        if tb:
-            # Attempt to extract line number from the last part of the traceback
-            try:
-                # Extract line number from the traceback message
-                line_number = tb[-1].split(",")[1].strip().split()[1]
-            except IndexError:
-                line_number = "Unknown Line"
-        else:
-            line_number = "Unknown Line"
-
         command_name = interaction.command.name if interaction.command else "unknown"
         guild_name = interaction.guild.name if interaction.guild else "DMs"
         guild_id = interaction.guild.id if interaction.guild else "N/A"
 
+        # Log the error including the traceback
         if interaction.guild:
             self.bot.logger.error(
                 f"Error in /{command_name} command: {error} in {guild_name} (ID: {guild_id}) "
-                f"by {interaction.user} (ID: {interaction.user.id}) at line {line_number}"
+                f"by {interaction.user} (ID: {interaction.user.id})",
+                exc_info=True,
             )
         else:
             self.bot.logger.error(
-                f"Error in /{command_name} command: {error} in DMs by {interaction.user} (ID: {interaction.user.id}) "
-                f"at line {line_number}"
+                f"Error in /{command_name} command: {error} in DMs by {interaction.user} (ID: {interaction.user.id})",
+                exc_info=True,
             )
 
         # Check if already responded

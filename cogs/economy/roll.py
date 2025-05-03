@@ -111,6 +111,9 @@ async def perform_roll(bot, interaction, user_id, amount, action):
         result = "It's a tie!"
         color = discord.Color.gold()
         final_balance = prev_balance
+        await bot.database.game_db.set_user_game_stats(
+            user_id, GameEventType.ROLL, None, 0
+        )
 
     tied_count = stats["rolls_played"] - stats["rolls_won"] - stats["rolls_lost"]
 
@@ -129,7 +132,7 @@ async def perform_roll(bot, interaction, user_id, amount, action):
         name="Current Balance", value=f"${format_number(final_balance)}", inline=True
     )
     embed.set_footer(
-        text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count}"
+        text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count} | Total Played: {stats['rolls_played']}"
     )
 
     view = RollAgainView(bot, user_id, None if action else amount, action)

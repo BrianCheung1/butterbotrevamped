@@ -57,20 +57,25 @@ def create_mining_embed(
     :param xp_gained: The XP earned from the mining operation.
     :param new_balance: The new balance of the user after the mining operation.
     """
-    return discord.Embed(
-        title=f"{user.display_name}'s Mining Results",
-        description=f"You mined a **{mined_item}** worth **${format_number(value)}**!\nCurrent balance: **${format_number(new_balance)}**. Earned **{xp_gained}** XP.\nXP Progress: {current_xp}/{next_level_xp}",
+    embed = discord.Embed(
+        title=f"⛏️ {user.display_name}'s Mining Results",
+        description=f"You mined a **{mined_item}** worth **${format_number(value)}**!",
         color=discord.Color.green(),
     )
+    embed.add_field(
+        name="💰 New Balance", value=f"${format_number(new_balance)}", inline=True
+    )
+    embed.add_field(name="📈 XP Gained", value=f"+{xp_gained} XP", inline=True)
+    embed.add_field(
+        name="🔹 XP Progress", value=f"{current_xp}/{next_level_xp}", inline=False
+    )
 
-
-import discord
-import random
+    return embed
 
 
 class MineAgainView(discord.ui.View):
-    def __init__(self, bot, user_id):
-        super().__init__()
+    def __init__(self, bot, user_id, active_mining_sessions):
+        super().__init__(timeout=300)
         self.bot = bot
         self.user_id = user_id
         self.clicks = 0
@@ -80,6 +85,17 @@ class MineAgainView(discord.ui.View):
         )
         self.mine_again_btn.callback = self.mine_again_button
         self.add_item(self.mine_again_btn)
+        self.active_mining_sessions = active_mining_sessions
+
+    async def on_timeout(self):
+        self.active_mining_sessions.discard(self.user_id)
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+        if self.message:
+            await self.message.edit(
+                content="Button timed out/Cooldown Finished", view=self
+            )
 
     async def mine_again_button(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
@@ -90,7 +106,7 @@ class MineAgainView(discord.ui.View):
 
         self.clicks += 1
 
-        if self.clicks >= 500:
+        if self.clicks >= 100:
             self.mine_again_btn.disabled = True
             self.correct_color = random.choice(["Red", "Green", "Blue"])
             self.add_color_buttons()
@@ -138,23 +154,28 @@ class MineAgainView(discord.ui.View):
             return
 
         if chosen_color == self.correct_color:
-            self.mine_again_btn.disabled = False
-            self.clicks = 0
-            self.clear_items()  # Reset the view
-            self.__init__(self.bot, self.user_id)  # Re-initialize the buttons
+            for item in self.children:
+                if isinstance(item, discord.ui.Button) and item.label != "Mine Again":
+                    self.remove_item(item)
+            self.mine_again_btn.disabled = False  # Enable mining button again
+            self.clicks = 0  # Reset clicks
             await interaction.response.edit_message(
-                content="Correct! You can mine again.", view=self
+                content="✅ Correct! You can mine again.", view=self
             )
         else:
+            for item in self.children:
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True  # Disable all buttons
+
             await interaction.response.edit_message(
-                content="Wrong Color",
-                view=None,
+                content="❌ Wrong color! Cooldown Started.", view=self
             )
 
 
 class Mining(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.active_mining_sessions = set()
 
     @app_commands.command(name="mine", description="Mine ores for money")
     async def mine(self, interaction: discord.Interaction):
@@ -163,6 +184,12 @@ class Mining(commands.Cog):
 
         :param interaction: The interaction object from Discord.
         """
+        if interaction.user.id in self.active_mining_sessions:
+            await interaction.response.send_message(
+                "You are already mining or on a cooldown. Please wait.",
+            )
+            return
+
         await interaction.response.defer()
 
         # Perform the mining logic
@@ -180,12 +207,11 @@ class Mining(commands.Cog):
             next_level_xp,
             new_balance,
         )
-
+        self.active_mining_sessions.add(interaction.user.id)
         # Initialize the MineAgainView with the bot and user_id
-        view = MineAgainView(self.bot, interaction.user.id)
-
+        view = MineAgainView(self.bot, interaction.user.id, self.active_mining_sessions)
         # Send the embed with the MineAgainView
-        await interaction.followup.send(embed=embed, view=view)
+        view.message = await interaction.followup.send(embed=embed, view=view)
 
 
 async def setup(bot):

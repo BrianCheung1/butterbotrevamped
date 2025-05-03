@@ -76,11 +76,30 @@ class Steal(commands.Cog):
             if msg:
                 await interaction.response.send_message(msg, ephemeral=True)
                 return
-
-        success = random.random() < STEAL_SUCCESS_RATE
+        wealth_factor = min(target_balance / 500_000, 1)
+        more_wealth_factor = min(target_balance / 10_000_000, 1)
+        success = (
+            random.random()
+            < STEAL_SUCCESS_RATE + 0.25 * wealth_factor + 0.1 * more_wealth_factor
+        )
 
         if success:
-            stolen_amount = int(target_balance * random.uniform(*STEAL_AMOUNT_RANGE))
+            tiers = [
+                (0.05, 0.075),  # Common
+                (0.075, 0.10),  # Uncommon
+                (0.10, 0.15),  # Rare
+                (0.15, 0.20),  # Super rare
+            ]
+            weights = [85, 10, 4, 1]  # Adjust to taste — total = 100
+
+            # Choose a tier based on weight
+            low, high = random.choices(tiers, weights=weights, k=1)[0]
+
+            # Choose a percent within that tier
+            percent = random.uniform(low, high)
+            if target_balance > 1_000_000:
+                percent *= 0.1
+            stolen_amount = max(1, int(target_balance * percent))
             stolen_amount = min(stolen_amount, target_balance)
 
             await self.bot.database.user_db.set_balance(
