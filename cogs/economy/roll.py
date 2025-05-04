@@ -46,9 +46,15 @@ class Roll(commands.Cog):
         amount: Optional[app_commands.Range[int, 1, None]] = None,
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
-        await interaction.response.defer()
 
         user_id = interaction.user.id
+        if user_id in self.bot.active_blackjack_players:
+            await interaction.response.send_message(
+                "You are in a Blackjack game! Please finish the game first",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.defer()
         balance = await self.bot.database.user_db.get_balance(user_id)
 
         if amount and action:

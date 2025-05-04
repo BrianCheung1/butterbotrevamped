@@ -45,7 +45,7 @@ EMOJI_MAP = {
 
 def create_deck():
     ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
-    deck = ranks * 6
+    deck = ranks * 24
     random.shuffle(deck)
     return deck
 
@@ -154,9 +154,18 @@ class Blackjack(commands.Cog):
         amount: Optional[app_commands.Range[int, 1, None]] = None,
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
-        await interaction.response.defer()
 
         user_id = interaction.user.id
+
+        if user_id in self.bot.active_blackjack_players:
+            await interaction.response.send_message(
+                "You are already in a Blackjack game!", ephemeral=True
+            )
+            return
+
+        # Add the user to the active games set
+        self.bot.active_blackjack_players.add(user_id)
+        await interaction.response.defer()
         balance = await self.bot.database.user_db.get_balance(user_id)
 
         if amount and action:
@@ -208,6 +217,7 @@ class BlackjackView(discord.ui.View):
         return True
 
     async def on_timeout(self):
+        self.bot.active_blackjack_players.discard(self.user_id)
         current_balance = await self.bot.database.user_db.get_balance(self.user_id)
         if self.interaction:
             await self.interaction.edit_original_response(
@@ -266,7 +276,7 @@ class BlackjackView(discord.ui.View):
         self.amount *= 2
         self.player_hand.append(draw_card(self.deck))
 
-        await self.end_game(interaction, double_down=True)
+        await self.end_game(interaction)
 
     async def update_game(self, interaction):
         embed = discord.Embed(title="Blackjack", color=discord.Color.blue())
@@ -289,12 +299,7 @@ class BlackjackView(discord.ui.View):
         busted = False
         if player_value > 21:
             busted = True
-        while (
-            dealer_value < 17
-            and not busted
-            or is_soft_17(self.dealer_hand)
-            and not busted
-        ):
+        while not busted and (dealer_value < 17 or is_soft_17(self.dealer_hand)):
             self.dealer_hand.append(draw_card(self.deck))
             dealer_value = calculate_hand_value(self.dealer_hand)
 
@@ -335,6 +340,7 @@ class BlackjackView(discord.ui.View):
         await self.bot.database.game_db.set_user_game_stats(
             self.user_id, GameEventType.BLACKJACK, win_value, abs(outcome)
         )
+        self.bot.active_blackjack_players.discard(self.user_id)
         self.stop()
 
 
@@ -352,14 +358,15 @@ async def perform_blackjack(bot, interaction, user_id, amount, action, balance):
 
     if player_value == 21:
         if dealer_value == 21:
+            won, lost = False, False
             result = "Push! Both you and the dealer have blackjack. 🤝"
             outcome = 0
-            stats["blackjacks_played"] += 1
         else:
             result = "Blackjack! You win with a natural 21! 🎉 You win"
             outcome = int(amount * 1.5)
-            stats["blackjacks_played"] += 1
-            stats["blackjacks_won"] += 1
+            won, lost = True, False
+        update_stats(stats, won, lost)
+        win_value = True if won else False if lost else None
         embed = discord.Embed(
             title="Blackjack",
             description=f"Bet Amount ${format_number(amount)}",
@@ -395,9 +402,10 @@ async def perform_blackjack(bot, interaction, user_id, amount, action, balance):
         await bot.database.game_db.set_user_game_stats(
             user_id,
             GameEventType.BLACKJACK,
-            True,
+            win_value,
             outcome,
         )
+        bot.active_blackjack_players.discard(user_id)
         return
 
     embed = discord.Embed(

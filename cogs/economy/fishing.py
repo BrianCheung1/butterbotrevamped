@@ -19,20 +19,38 @@ async def perform_fishing(bot, user_id):
     value = random.randint(*rarity_info["value_range"])
     xp_gained = random.randint(5, 10)
 
-    current_xp, next_level_xp = await bot.database.work_db.set_work_stats(
-        user_id, value, xp_gained, "fishing"
-    )
+    (
+        current_xp,
+        next_level_xp,
+        current_level,
+    ) = await bot.database.work_db.set_work_stats(user_id, value, xp_gained, "fishing")
+    level_bonus = int((current_level * 0.05) * value)
     balance = await bot.database.user_db.get_balance(user_id)
-    await bot.database.user_db.set_balance(user_id, balance + value)
+    await bot.database.user_db.set_balance(user_id, balance + value + level_bonus)
 
     db_operation_time = time.time() - start_time
     bot.logger.info(f"Database operation took {db_operation_time:.4f} seconds")
 
-    return fished_item, value, current_xp, xp_gained, next_level_xp, balance + value
+    return (
+        fished_item,
+        value,
+        level_bonus,
+        current_xp,
+        current_level,
+        next_level_xp,
+        balance + value + level_bonus,
+    )
 
 
 def create_fishing_embed(
-    user, fished_item, value, current_xp, xp_gained, next_level_xp, new_balance
+    user,
+    fished_item,
+    value,
+    level_bonus,
+    current_xp,
+    current_level,
+    next_level_xp,
+    new_balance,
 ):
     embed = discord.Embed(
         title=f"🎣 {user.display_name}'s Fishing Results",
@@ -42,9 +60,15 @@ def create_fishing_embed(
     embed.add_field(
         name="💰 New Balance", value=f"${format_number(new_balance)}", inline=True
     )
-    embed.add_field(name="📈 XP Gained", value=f"+{xp_gained} XP", inline=True)
     embed.add_field(
-        name="🔹 XP Progress", value=f"{current_xp}/{next_level_xp}", inline=False
+        name="🔹 XP Progress",
+        value=f"LVL: {current_level} | XP:{current_xp}/{next_level_xp}",
+        inline=True,
+    )
+    embed.add_field(
+        name="Level Bonus",
+        value=f"${format_number(level_bonus)}",
+        inline=True,
     )
     return embed
 
@@ -93,20 +117,30 @@ class FishAgainView(discord.ui.View):
             )
             return
 
-        fished_item, value, current_xp, xp_gained, next_level_xp, new_balance = (
-            await perform_fishing(self.bot, self.user_id)
-        )
+        (
+            fished_item,
+            value,
+            level_bonus,
+            current_xp,
+            current_level,
+            next_level_xp,
+            new_balance,
+        ) = await perform_fishing(self.bot, self.user_id)
 
         embed = create_fishing_embed(
             interaction.user,
             fished_item,
             value,
+            level_bonus,
             current_xp,
-            xp_gained,
+            current_level,
             next_level_xp,
             new_balance,
         )
+        start_time = time.time()
         await interaction.response.edit_message(embed=embed, view=self)
+        elapsed = time.time() - start_time
+        self.bot.logger.info(f"Edit message took {elapsed:.4f} seconds")
 
     def add_color_buttons(self):
         for color, style in [
@@ -161,16 +195,23 @@ class Fishing(commands.Cog):
             return
 
         await interaction.response.defer()
-        fished_item, value, current_xp, xp_gained, next_level_xp, new_balance = (
-            await perform_fishing(self.bot, interaction.user.id)
-        )
+        (
+            fished_item,
+            value,
+            level_bonus,
+            current_xp,
+            current_level,
+            next_level_xp,
+            new_balance,
+        ) = await perform_fishing(self.bot, interaction.user.id)
 
         embed = create_fishing_embed(
             interaction.user,
             fished_item,
             value,
+            level_bonus,
             current_xp,
-            xp_gained,
+            current_level,
             next_level_xp,
             new_balance,
         )

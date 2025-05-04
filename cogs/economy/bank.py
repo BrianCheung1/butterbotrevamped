@@ -50,9 +50,7 @@ class Bank(commands.Cog):
         _, bank_stats = await self.get_user_stats(user.id)
 
         embed = self.build_bank_embed(user, bank_stats, bank_balance)
-        await interaction.response.send_message(
-            embed=embed, ephemeral=(user == interaction.user)
-        )
+        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="deposit", description="Deposit money into your bank.")
     @app_commands.describe(
@@ -72,8 +70,14 @@ class Bank(commands.Cog):
         amount: Optional[app_commands.Range[int, 1, None]] = None,
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
-        user = interaction.user
-        balance, bank_stats = await self.get_user_stats(user.id)
+        user_id = interaction.user.id
+        if user_id in self.bot.active_blackjack_players:
+            await interaction.response.send_message(
+                "You are in a Blackjack game! Please finish the game first",
+                ephemeral=True,
+            )
+            return
+        balance, bank_stats = await self.get_user_stats(user_id)
         available_space = bank_stats["bank_cap"] - bank_stats["bank_balance"]
 
         if balance <= 0:
@@ -107,17 +111,17 @@ class Bank(commands.Cog):
 
         if amount_to_deposit <= 0:
             await interaction.response.send_message(
-                f"You cannot deposit more than your bank capacity.\nCurrent Bank Balance: ${format_number(bank_stats['bank_balance'])}.\nCurrent Bank Cap: ${format_number(bank_stats['bank_balance'])}",
+                f"You cannot deposit more than your bank capacity.\nCurrent Bank Balance: ${format_number(bank_stats['bank_balance'])}.\nCurrent Bank Cap: ${format_number(bank_stats['bank_cap'])}",
                 ephemeral=True,
             )
             return
 
         # Update DB
         await self.bot.database.user_db.set_balance(
-            user.id, balance - amount_to_deposit
+            user_id, balance - amount_to_deposit
         )
         await self.bot.database.bank_db.set_bank_balance(
-            user.id, bank_stats["bank_balance"] + amount_to_deposit
+            user_id, bank_stats["bank_balance"] + amount_to_deposit
         )
 
         embed = self.build_transaction_embed(
@@ -146,8 +150,14 @@ class Bank(commands.Cog):
         amount: Optional[app_commands.Range[int, 1, None]] = None,
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
-        user = interaction.user
-        balance, bank_stats = await self.get_user_stats(user.id)
+        user_id = interaction.user.id
+        if user_id in self.bot.active_blackjack_players:
+            await interaction.response.send_message(
+                "You are in a Blackjack game! Please finish the game first",
+                ephemeral=True,
+            )
+            return
+        balance, bank_stats = await self.get_user_stats(user_id)
         bank_balance = bank_stats["bank_balance"]
 
         if bank_balance <= 0:
@@ -184,10 +194,10 @@ class Bank(commands.Cog):
 
         # Update DB
         await self.bot.database.bank_db.set_bank_balance(
-            user.id, bank_balance - amount_to_withdraw
+            user_id, bank_balance - amount_to_withdraw
         )
         await self.bot.database.user_db.set_balance(
-            user.id, balance + amount_to_withdraw
+            user_id, balance + amount_to_withdraw
         )
 
         embed = self.build_transaction_embed(

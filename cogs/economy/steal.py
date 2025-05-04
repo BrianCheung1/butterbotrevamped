@@ -22,6 +22,15 @@ class Steal(commands.Cog):
 
         target_id = user.id
         thief_id = interaction.user.id
+        if (
+            target_id in self.bot.active_blackjack_players
+            or thief_id in self.bot.active_blackjack_players
+        ):
+            await interaction.response.send_message(
+                "You or target is currently in a Blackjack game! Please try agian later",
+                ephemeral=True,
+            )
+            return
 
         STEAL_COOLDOWN = datetime.timedelta(hours=1)
         STOLEN_FROM_COOLDOWN = datetime.timedelta(hours=6)

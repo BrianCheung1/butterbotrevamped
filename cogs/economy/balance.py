@@ -29,7 +29,6 @@ class Balance(commands.Cog):
         """
         user = user or interaction.user
         balance = await self.bot.database.user_db.get_balance(user.id)
-        
 
         embed = discord.Embed(
             title=f"{user.name}'s Balance",

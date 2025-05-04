@@ -29,24 +29,34 @@ async def perform_mining(bot, user_id):
     value = random.randint(rarity_info["value_range"][0], rarity_info["value_range"][1])
     xp_gained = random.randint(5, 10)
     # Update user's work stats (total mined value and items mined)
-    current_xp, next_level_xp = await bot.database.work_db.set_work_stats(
-        user_id, value, xp_gained, "mining"
+    current_xp, next_level_xp, current_level = (
+        await bot.database.work_db.set_work_stats(user_id, value, xp_gained, "mining")
     )
+    level_bonus = int((current_level * 0.05) * value)
+
     balance = await bot.database.user_db.get_balance(user_id)
-    await bot.database.user_db.set_balance(user_id, balance + value)
+    await bot.database.user_db.set_balance(user_id, balance + value + level_bonus)
 
     return (
         mined_item,
         value,
+        level_bonus,
         current_xp,
-        xp_gained,
+        current_level,
         next_level_xp,
-        balance + value,
+        balance + value + level_bonus,
     )
 
 
 def create_mining_embed(
-    user, mined_item, value, current_xp, xp_gained, next_level_xp, new_balance
+    user,
+    mined_item,
+    value,
+    level_bonus,
+    current_xp,
+    current_level,
+    next_level_xp,
+    new_balance,
 ):
     """
     Generate an embed for the mining result.
@@ -65,9 +75,15 @@ def create_mining_embed(
     embed.add_field(
         name="💰 New Balance", value=f"${format_number(new_balance)}", inline=True
     )
-    embed.add_field(name="📈 XP Gained", value=f"+{xp_gained} XP", inline=True)
     embed.add_field(
-        name="🔹 XP Progress", value=f"{current_xp}/{next_level_xp}", inline=False
+        name="🔹 XP Progress",
+        value=f"LVL: {current_level} | XP:{current_xp}/{next_level_xp}",
+        inline=True,
+    )
+    embed.add_field(
+        name="Level Bonus",
+        value=f"${format_number(level_bonus)}",
+        inline=True,
     )
 
     return embed
@@ -116,16 +132,23 @@ class MineAgainView(discord.ui.View):
             return
 
         # Assume perform_mining & create_mining_embed are defined elsewhere
-        mined_item, value, current_xp, xp_gained, next_level_xp, new_balance = (
-            await perform_mining(self.bot, self.user_id)
-        )
+        (
+            mined_item,
+            value,
+            level_bonus,
+            current_xp,
+            current_level,
+            next_level_xp,
+            new_balance,
+        ) = await perform_mining(self.bot, self.user_id)
 
         embed = create_mining_embed(
             interaction.user,
             mined_item,
             value,
+            level_bonus,
             current_xp,
-            xp_gained,
+            current_level,
             next_level_xp,
             new_balance,
         )
@@ -193,17 +216,24 @@ class Mining(commands.Cog):
         await interaction.response.defer()
 
         # Perform the mining logic
-        mined_item, value, current_xp, xp_gained, next_level_xp, new_balance = (
-            await perform_mining(self.bot, interaction.user.id)
-        )
+        (
+            mined_item,
+            value,
+            level_bonus,
+            current_xp,
+            current_level,
+            next_level_xp,
+            new_balance,
+        ) = await perform_mining(self.bot, interaction.user.id)
 
         # Create the embed
         embed = create_mining_embed(
             interaction.user,
             mined_item,
             value,
+            level_bonus,
             current_xp,
-            xp_gained,
+            current_level,
             next_level_xp,
             new_balance,
         )

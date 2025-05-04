@@ -79,11 +79,19 @@ CREATE TABLE IF NOT EXISTS user_player_stats (
 );
 
 -- Inventory Table
-CREATE TABLE IF NOT EXISTS inventory (
+CREATE TABLE IF NOT EXISTS user_inventory (
     user_id INTEGER,
     item_name TEXT,
     quantity INTEGER DEFAULT 1,
     PRIMARY KEY(user_id, item_name),
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+-- User Tools Table
+CREATE TABLE IF NOT EXISTS user_equipped_tools (
+    user_id INTEGER PRIMARY KEY,
+    pickaxe TEXT,
+    fishingrod TEXT,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
