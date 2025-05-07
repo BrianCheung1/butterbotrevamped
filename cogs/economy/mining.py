@@ -118,10 +118,11 @@ def create_mining_embed(
 
 class MineAgainView(discord.ui.View):
     def __init__(self, bot, user_id, active_mining_sessions):
-        super().__init__(timeout=300)
+        super().__init__(timeout=1800)
         self.bot = bot
         self.user_id = user_id
         self.clicks = 0
+        self.click_threshold = random.randint(20, 30)
         self.correct_color = None
         self.mine_again_btn = discord.ui.Button(
             label="Mine Again", style=discord.ButtonStyle.green
@@ -153,7 +154,7 @@ class MineAgainView(discord.ui.View):
 
         self.clicks += 1
 
-        if self.clicks >= 100:
+        if self.clicks >= self.click_threshold:
             self.mine_again_btn.disabled = True
             self.correct_color = random.choice(["Red", "Green", "Blue"])
             self.add_color_buttons()
@@ -189,7 +190,6 @@ class MineAgainView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     def add_color_buttons(self):
-        # Create buttons dynamically
         for color, style in [
             ("Green", discord.ButtonStyle.green),
             ("Red", discord.ButtonStyle.red),
@@ -214,15 +214,17 @@ class MineAgainView(discord.ui.View):
             for item in self.children:
                 if isinstance(item, discord.ui.Button) and item.label != "Mine Again":
                     self.remove_item(item)
-            self.mine_again_btn.disabled = False  # Enable mining button again
-            self.clicks = 0  # Reset clicks
+
+            self.mine_again_btn.disabled = False
+            self.clicks = 0
+            self.click_threshold += 200
             await interaction.response.edit_message(
                 content="✅ Correct! You can mine again.", view=self
             )
         else:
             for item in self.children:
                 if isinstance(item, discord.ui.Button):
-                    item.disabled = True  # Disable all buttons
+                    item.disabled = True
 
             await interaction.response.edit_message(
                 content="❌ Wrong color! Cooldown Started.", view=self

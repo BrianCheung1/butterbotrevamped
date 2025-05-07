@@ -125,10 +125,11 @@ def create_fishing_embed(
 
 class FishAgainView(discord.ui.View):
     def __init__(self, bot, user_id, active_fishing_sessions):
-        super().__init__(timeout=300)
+        super().__init__(timeout=1800)
         self.bot = bot
         self.user_id = user_id
         self.clicks = 0
+        self.click_threshold = random.randint(20, 30)
         self.correct_color = None
         self.fish_again_btn = discord.ui.Button(
             label="Fish Again", style=discord.ButtonStyle.green
@@ -160,7 +161,7 @@ class FishAgainView(discord.ui.View):
 
         self.clicks += 1
 
-        if self.clicks >= 100:
+        if self.clicks >= self.click_threshold:
             self.fish_again_btn.disabled = True
             self.correct_color = random.choice(["Red", "Green", "Blue"])
             self.add_color_buttons()
@@ -223,6 +224,7 @@ class FishAgainView(discord.ui.View):
                     self.remove_item(item)
             self.fish_again_btn.disabled = False
             self.clicks = 0
+            self.click_threshold += 200
             await interaction.response.edit_message(
                 content="✅ Correct! You can fish again.", view=self
             )

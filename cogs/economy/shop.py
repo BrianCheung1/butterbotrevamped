@@ -100,7 +100,7 @@ class Shop(commands.Cog):
 
         # Apply item
         if item_key == "bank_upgrade":
-            await self.bot.database.bank_db.upgrade_bank(user_id)
+            await self.bot.database.bank_db.set_bank_level_and_cap(user_id)
         else:
             await self.bot.database.inventory_db.add_item(user_id, item_key)
 
