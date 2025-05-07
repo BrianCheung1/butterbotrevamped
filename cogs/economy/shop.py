@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from utils.formatting import format_number
 from utils.shop_helpers import get_all_shop_items, get_shop_item_data
+from constants.shop_config import SHOP_ITEMS
 
 
 class Shop(commands.Cog):
@@ -30,32 +31,20 @@ class Shop(commands.Cog):
             return
 
         balance = await self.bot.database.user_db.get_balance(user_id)
+        work_stats_raw = await self.bot.database.work_db.get_user_work_stats(user_id)
+        work_stats = dict(work_stats_raw["work_stats"])
         await interaction.response.defer()
 
         if item is None:
-            embed = discord.Embed(
-                title="🛒 Welcome to the Shop!",
-                description="Here are the available items:",
-                color=discord.Color.gold(),
-            )
+            bank_raw = await self.bot.database.bank_db.get_user_bank_stats(user_id)
+            user_levels = {
+                "bank_level": dict(bank_raw["bank_stats"]).get("bank_level", 1),
+                **work_stats,
+            }
 
-            for key, data in get_all_shop_items():
-                if key == "bank_upgrade":
-                    bank_raw = await self.bot.database.bank_db.get_user_bank_stats(
-                        user_id
-                    )
-                    level = max(1, dict(bank_raw["bank_stats"]).get("bank_level", 1))
-                    cost = data["base_price"] + (level - 1) * data["price_increment"]
-                else:
-                    cost = data["price"]
-
-                embed.add_field(
-                    name=f"{data['name']} - ${format_number(cost)}",
-                    value=data["description"],
-                    inline=False,
-                )
-
-            await interaction.followup.send(embed=embed)
+            pages = generate_shop_pages(user_id, SHOP_ITEMS, user_levels)
+            view = ShopView(user_id, pages)
+            await interaction.followup.send(embed=pages[0], view=view)
             return
 
         # Item selected
@@ -65,6 +54,32 @@ class Shop(commands.Cog):
         if not item_data:
             await interaction.followup.send("Item not found.")
             return
+
+        # Check if the item requires a specific level (for tools)
+        level_required = item_data.get("level_required", None)
+
+        if level_required:
+            # Define a mapping between tool names and work stats
+            tool_to_work_stat_map = {
+                "pickaxe": "mining_level",
+                "fishingrod": "fishing_level",
+            }
+
+            # Extract tool type from the item key (e.g., "pickaxe_wooden" -> "pickaxe")
+            tool_type = item_key.split("_")[0]
+
+            # Check if this tool type has a corresponding work stat
+            if tool_type in tool_to_work_stat_map:
+                work_stat_key = tool_to_work_stat_map[tool_type]
+                user_level = work_stats.get(work_stat_key, 0)
+
+                # If the user does not meet the required level, send a message
+                if user_level < level_required:
+                    await interaction.followup.send(
+                        f"You need **{work_stat_key.replace('_', ' ').capitalize()} Level {level_required}** to buy **{item_data['name']}**, "
+                        f"but you are **Level {user_level}** in {work_stat_key.replace('_', ' ').capitalize()}."
+                    )
+                    return
 
         if item_key == "bank_upgrade":
             bank_raw = await self.bot.database.bank_db.get_user_bank_stats(user_id)
@@ -81,7 +96,7 @@ class Shop(commands.Cog):
             return
 
         # Deduct balance
-        await self.bot.database.user_db.set_balance(user_id, balance - cost)
+        await self.bot.database.user_db.increment_balance(user_id, -cost)
 
         # Apply item
         if item_key == "bank_upgrade":
@@ -89,9 +104,84 @@ class Shop(commands.Cog):
         else:
             await self.bot.database.inventory_db.add_item(user_id, item_key)
 
-        await interaction.followup.send(
-            f"You bought **{item_data['name']}** for ${format_number(cost)}!"
+        message = f"You bought **{item_data['name']}** for ${format_number(cost)}!"
+
+        # Suggest equipping if it's a tool
+        if item_key.startswith("pickaxe") or item_key.startswith("fishingrod"):
+            message += "\nUse the `/equip` command to equip it and gain its benefits."
+
+        await interaction.followup.send(message)
+
+
+class ShopView(discord.ui.View):
+    def __init__(self, user_id, pages):
+        super().__init__(timeout=180)
+        self.user_id = user_id
+        self.pages = pages
+        self.current_page = 0
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        return interaction.user.id == self.user_id
+
+    @discord.ui.button(
+        label="Previous", style=discord.ButtonStyle.secondary, disabled=True
+    )
+    async def previous_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.current_page -= 1
+        await self.update_buttons(interaction)
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
+    async def next_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.current_page += 1
+        await self.update_buttons(interaction)
+
+    async def update_buttons(self, interaction: discord.Interaction):
+        self.children[0].disabled = self.current_page == 0
+        self.children[1].disabled = self.current_page == len(self.pages) - 1
+        await interaction.response.edit_message(
+            embed=self.pages[self.current_page], view=self
         )
+
+
+def generate_shop_pages(user_id, shop_data, user_levels):
+    pages = []
+
+    # Page 1: Bank Upgrade
+    bank_data = shop_data["bank_upgrade"]
+    embed = discord.Embed(title="🏦 Bank Upgrade", color=discord.Color.gold())
+    level = max(1, user_levels.get("bank_level", 1))
+    cost = bank_data["base_price"] + (level - 1) * bank_data["price_increment"]
+    embed.add_field(
+        name=bank_data["name"],
+        value=f"{bank_data['description']}\nCost: ${format_number(cost)}",
+        inline=False,
+    )
+    pages.append(embed)
+
+    # Tool pages
+    for tool_type, variants in shop_data["tools"].items():
+        embed = discord.Embed(
+            title=f"🛠️ {tool_type.capitalize()}s", color=discord.Color.green()
+        )
+        stat_key = "mining_level" if tool_type == "pickaxe" else "fishing_level"
+        user_level = user_levels.get(stat_key, 0)
+
+        for rarity, data in variants.items():
+            cost = data["price"]
+            level_required = data.get("level_required", 0)
+            req_text = f"Requires {stat_key.replace('_', ' ').capitalize()} Level {level_required}"
+            embed.add_field(
+                name=data["name"],
+                value=f"{data['description']}\nCost: ${format_number(cost)}\n{req_text}",
+                inline=False,
+            )
+        pages.append(embed)
+
+    return pages
 
 
 async def setup(bot):

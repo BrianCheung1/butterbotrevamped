@@ -44,7 +44,10 @@ class Daily(commands.Cog):
         total_reward = daily_amount + bonus
 
         # Update DB
-        await self.bot.database.user_db.set_balance(user.id, balance + total_reward)
+        # await self.bot.database.user_db.set_balance(user.id, balance + total_reward)
+        new_balance = await self.bot.database.user_db.increment_balance(
+            user.id, total_reward
+        )
         if reset_streak:
             await self.bot.database.user_db.set_daily(user.id, daily_streak=1)
         else:
@@ -56,7 +59,7 @@ class Daily(commands.Cog):
             f"\nDaily: ${format_number(daily_amount)}"
             f"\nBonus: ${format_number(bonus)}"
             f"\nStreak: {daily_streak + 1} day(s)"
-            f"\nYour new balance is ${format_number(balance + total_reward)}.",
+            f"\nYour new balance is ${format_number(new_balance)}.",
             color=discord.Color.green(),
         )
         await interaction.response.send_message(embed=embed)

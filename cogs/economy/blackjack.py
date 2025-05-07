@@ -20,7 +20,7 @@ def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional
 
 def validate_amount(amount: Optional[int], balance: int) -> Optional[str]:
     if amount is None or amount <= 0:
-        return "Invalid roll amount."
+        return "Invalid amount"
     if amount > balance:
         return f"You don't have enough balance to play blackjack. Current balance is ${format_number(balance)}."
     return None
@@ -163,8 +163,6 @@ class Blackjack(commands.Cog):
             )
             return
 
-        # Add the user to the active games set
-        self.bot.active_blackjack_players.add(user_id)
         await interaction.response.defer()
         balance = await self.bot.database.user_db.get_balance(user_id)
 
@@ -182,6 +180,8 @@ class Blackjack(commands.Cog):
             await interaction.edit_original_response(content=error)
             return
 
+        # Add the user to the active games set
+        self.bot.active_blackjack_players.add(user_id)
         await perform_blackjack(
             self.bot,
             interaction,
@@ -232,9 +232,10 @@ class BlackjackView(discord.ui.View):
             )
 
         # Apply consequences (loss of bet and update stats)
-        await self.bot.database.user_db.set_balance(
-            self.user_id, current_balance - self.amount
-        )
+        # await self.bot.database.user_db.set_balance(
+        #     self.user_id, current_balance - self.amount
+        # )
+        await self.bot.database.user_db.increment_balance(self.user_id, -self.amount)
         await self.bot.database.game_db.set_user_game_stats(
             self.user_id, GameEventType.BLACKJACK, False, self.amount
         )
@@ -334,9 +335,10 @@ class BlackjackView(discord.ui.View):
         )
 
         await interaction.response.edit_message(embed=embed, view=None)
-        await self.bot.database.user_db.set_balance(
-            self.user_id, current_balance + outcome
-        )
+        # await self.bot.database.user_db.set_balance(
+        #     self.user_id, current_balance + outcome
+        # )
+        await self.bot.database.user_db.increment_balance(self.user_id, outcome)
         await self.bot.database.game_db.set_user_game_stats(
             self.user_id, GameEventType.BLACKJACK, win_value, abs(outcome)
         )
@@ -398,7 +400,8 @@ async def perform_blackjack(bot, interaction, user_id, amount, action, balance):
             f"Blackjacks Played: {stats['blackjacks_played']}"
         )
         await interaction.edit_original_response(embed=embed, view=None)
-        await bot.database.user_db.set_balance(user_id, balance + outcome)
+        # await bot.database.user_db.set_balance(user_id, balance + outcome)
+        await bot.database.user_db.increment_balance(user_id, outcome)
         await bot.database.game_db.set_user_game_stats(
             user_id,
             GameEventType.BLACKJACK,

@@ -117,9 +117,10 @@ class Bank(commands.Cog):
             return
 
         # Update DB
-        await self.bot.database.user_db.set_balance(
-            user_id, balance - amount_to_deposit
-        )
+        # await self.bot.database.user_db.set_balance(
+        #     user_id, balance - amount_to_deposit
+        # )
+        await self.bot.database.user_db.increment_balance(user_id, -amount_to_deposit)
         await self.bot.database.bank_db.set_bank_balance(
             user_id, bank_stats["bank_balance"] + amount_to_deposit
         )
@@ -196,9 +197,10 @@ class Bank(commands.Cog):
         await self.bot.database.bank_db.set_bank_balance(
             user_id, bank_balance - amount_to_withdraw
         )
-        await self.bot.database.user_db.set_balance(
-            user_id, balance + amount_to_withdraw
-        )
+        # await self.bot.database.user_db.set_balance(
+        #     user_id, balance + amount_to_withdraw
+        # )
+        await self.bot.database.user_db.increment_balance(user_id, amount_to_withdraw)
 
         embed = self.build_transaction_embed(
             action="Withdrawal",

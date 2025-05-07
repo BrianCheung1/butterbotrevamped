@@ -6,7 +6,7 @@ FISHING_RARITY_TIERS = {
             "pufferfish",
             "tropical fish",
         ],
-        "value_range": (1, 10),
+        "value_range": (50, 100),
         "weight": 50,
     },
     "Uncommon": {
@@ -17,7 +17,7 @@ FISHING_RARITY_TIERS = {
             "catfish",
             "bass",
         ],
-        "value_range": (10, 30),
+        "value_range": (100, 150),
         "weight": 30,
     },
     "Rare": {
@@ -28,7 +28,7 @@ FISHING_RARITY_TIERS = {
             "magma cream",
             "ender pearl",
         ],
-        "value_range": (30, 75),
+        "value_range": (150, 250),
         "weight": 15,
     },
     "Epic": {
@@ -39,7 +39,7 @@ FISHING_RARITY_TIERS = {
             "ghost fish",
             "fishing lure",
         ],
-        "value_range": (75, 200),
+        "value_range": (250, 500),
         "weight": 4,
     },
     "Legendary": {
@@ -50,7 +50,7 @@ FISHING_RARITY_TIERS = {
             "elder guardian",
             "rainbow fish",
         ],
-        "value_range": (200, 500),
+        "value_range": (1500, 2000),
         "weight": 1,
     },
 }

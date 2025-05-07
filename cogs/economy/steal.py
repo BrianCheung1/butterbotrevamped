@@ -6,6 +6,7 @@ from discord.ext import commands
 from constants.steal_config import StealEventType
 from utils.formatting import format_number
 from utils.cooldown import get_cooldown_response
+from typing import List
 
 
 class Steal(commands.Cog):
@@ -72,7 +73,7 @@ class Steal(commands.Cog):
             msg = get_cooldown_response(
                 last_stolen_from_at,
                 STOLEN_FROM_COOLDOWN,
-                f"{user.mention} was stolen from recently.",
+                f"{user.mention} was stolen from recently. Try again ",
             )
             if msg:
                 await interaction.response.send_message(msg, ephemeral=True)
@@ -80,7 +81,9 @@ class Steal(commands.Cog):
 
         if last_stole_from_other_at:
             msg = get_cooldown_response(
-                last_stole_from_other_at, STEAL_COOLDOWN, "You just tried stealing!"
+                last_stole_from_other_at,
+                STEAL_COOLDOWN,
+                "You just tried stealing! Try again ",
             )
             if msg:
                 await interaction.response.send_message(msg, ephemeral=True)
@@ -111,12 +114,14 @@ class Steal(commands.Cog):
             stolen_amount = max(1, int(target_balance * percent))
             stolen_amount = min(stolen_amount, target_balance)
 
-            await self.bot.database.user_db.set_balance(
-                thief_id, thief_balance + stolen_amount
-            )
-            await self.bot.database.user_db.set_balance(
-                target_id, target_balance - stolen_amount
-            )
+            # await self.bot.database.user_db.set_balance(
+            #     thief_id, thief_balance + stolen_amount
+            # )
+            await self.bot.database.user_db.increment_balance(thief_id, stolen_amount)
+            # await self.bot.database.user_db.set_balance(
+            #     target_id, target_balance - stolen_amount
+            # )
+            await self.bot.database.user_db.increment_balance(target_id, -stolen_amount)
 
             await self.bot.database.steal_db.set_user_steal_stats(
                 thief_id, stolen_amount, StealEventType.STEAL_SUCCESS
@@ -134,9 +139,10 @@ class Steal(commands.Cog):
             lost_amount = int(thief_balance * random.uniform(*STEAL_AMOUNT_RANGE))
             lost_amount = min(lost_amount, thief_balance)
 
-            await self.bot.database.user_db.set_balance(
-                thief_id, thief_balance - lost_amount
-            )
+            # await self.bot.database.user_db.set_balance(
+            #     thief_id, thief_balance - lost_amount
+            # )
+            await self.bot.database.user_db.increment_balance(thief_id, -lost_amount)
 
             await self.bot.database.steal_db.set_user_steal_stats(
                 thief_id, lost_amount, StealEventType.STEAL_FAIL
@@ -152,6 +158,95 @@ class Steal(commands.Cog):
             )
 
         await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="stealstatus", description="Check all active cooldowns")
+    async def steal_status(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.defer()
+        stealstatus_data = await self.bot.database.steal_db.get_all_steal_stats()
+
+        view = StealStatusView(stealstatus_data, interaction)
+        embed = view.generate_embed()
+
+        await interaction.followup.send(embed=embed, view=view)
+
+
+class StealStatusView(discord.ui.View):
+    def __init__(self, data: List[dict], interaction: discord.Interaction):
+        super().__init__(timeout=60)
+        # Filter to only include members still in the guild
+        self.data = [
+            row for row in data if interaction.guild.get_member(row["user_id"])
+        ]
+        self.interaction = interaction
+        self.page = 0
+        self.entries_per_page = 10
+        self.max_page = (len(data) - 1) // self.entries_per_page
+
+        self.prev_button.disabled = True
+        if self.max_page == 0:
+            self.next_button.disabled = True
+
+    def generate_embed(self) -> discord.Embed:
+        STOLEN_FROM_COOLDOWN = datetime.timedelta(hours=6)
+
+        start = self.page * self.entries_per_page
+        end = start + self.entries_per_page
+        slice_data = self.data[start:end]
+
+        lines = []
+
+        for row in slice_data:
+            user_id = row["user_id"]
+            user = self.interaction.guild.get_member(user_id)
+
+            if row.get("last_stolen_from_at"):
+                msg = get_cooldown_response(
+                    row["last_stolen_from_at"],
+                    STOLEN_FROM_COOLDOWN,
+                    f"{user.mention} can be stolen from ",
+                )
+                if msg:  # Ensure msg is not None
+                    lines.append(msg)
+
+        embed = discord.Embed(
+            title=f"🕒 Steal Cooldowns (Page {self.page + 1}/{self.max_page + 1})",
+            description="\n".join(lines) or "No active cooldowns.",
+            color=discord.Color.orange(),
+        )
+        return embed
+
+    @discord.ui.button(label="⬅ Previous", style=discord.ButtonStyle.gray)
+    async def prev_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if interaction.user != self.interaction.user:
+            await interaction.response.send_message(
+                "You're not allowed to control this pagination.", ephemeral=True
+            )
+            return
+
+        self.page -= 1
+        self.prev_button.disabled = self.page == 0
+        self.next_button.disabled = False
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    @discord.ui.button(label="➡ Next", style=discord.ButtonStyle.gray)
+    async def next_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if interaction.user != self.interaction.user:
+            await interaction.response.send_message(
+                "You're not allowed to control this pagination.", ephemeral=True
+            )
+            return
+
+        self.page += 1
+        self.next_button.disabled = self.page == self.max_page
+        self.prev_button.disabled = False
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
 
 async def setup(bot):

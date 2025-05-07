@@ -19,7 +19,7 @@ def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional
 
 def validate_amount(amount: Optional[int], balance: int) -> Optional[str]:
     if amount is None or amount <= 0:
-        return "Invalid roll amount."
+        return "Invalid amount"
     if amount > balance:
         return f"You don't have enough balance to roll this amount. Current balance is ${format_number(balance)}."
     return None
@@ -101,6 +101,7 @@ async def perform_roll(bot, interaction, user_id, amount, action):
         result = "You win!"
         color = discord.Color.green()
         final_balance = prev_balance + amount
+        outcome = amount
         stats["rolls_won"] += 1
         await bot.database.game_db.set_user_game_stats(
             user_id, GameEventType.ROLL, True, amount
@@ -109,6 +110,7 @@ async def perform_roll(bot, interaction, user_id, amount, action):
         result = "You lose!"
         color = discord.Color.red()
         final_balance = prev_balance - amount
+        outcome = -amount
         stats["rolls_lost"] += 1
         await bot.database.game_db.set_user_game_stats(
             user_id, GameEventType.ROLL, False, amount
@@ -117,26 +119,24 @@ async def perform_roll(bot, interaction, user_id, amount, action):
         result = "It's a tie!"
         color = discord.Color.gold()
         final_balance = prev_balance
+        outcome = 0
         await bot.database.game_db.set_user_game_stats(
             user_id, GameEventType.ROLL, None, 0
         )
 
     tied_count = stats["rolls_played"] - stats["rolls_won"] - stats["rolls_lost"]
 
-    await bot.database.user_db.set_balance(user_id, final_balance)
+    # await bot.database.user_db.set_balance(user_id, final_balance)
+    await bot.database.user_db.increment_balance(user_id, outcome)
 
     embed = discord.Embed(
         title="🎲 Dice Roll Result",
         description=f"You rolled: **{user_roll}**\nDealer rolled: **{dealer_roll}**\n\n**{result}**",
         color=color,
     )
-    embed.add_field(name="Bet Amount", value=f"${format_number(amount)}", inline=True)
-    embed.add_field(
-        name="Previous Balance", value=f"${format_number(prev_balance)}", inline=True
-    )
-    embed.add_field(
-        name="Current Balance", value=f"${format_number(final_balance)}", inline=True
-    )
+    embed.add_field(name="Bet Amount", value=f"${amount:,}", inline=True)
+    embed.add_field(name="Previous Balance", value=f"${prev_balance:,}", inline=True)
+    embed.add_field(name="Current Balance", value=f"${final_balance:,}", inline=True)
     embed.set_footer(
         text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count} | Total Played: {stats['rolls_played']}"
     )

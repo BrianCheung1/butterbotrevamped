@@ -10,7 +10,7 @@ MINING_RARITY_TIERS = {
             "granite",
             "diorite",
         ],
-        "value_range": (1, 10),
+        "value_range": (50, 100),
         "weight": 60,
     },
     "Uncommon": {
@@ -24,7 +24,7 @@ MINING_RARITY_TIERS = {
             "charcoal",
             "clay",
         ],
-        "value_range": (10, 25),
+        "value_range": (100, 150),
         "weight": 25,
     },
     "Rare": {
@@ -39,7 +39,7 @@ MINING_RARITY_TIERS = {
             "honeycomb",
             "quartz block",
         ],
-        "value_range": (25, 60),
+        "value_range": (150, 250),
         "weight": 10,
     },
     "Epic": {
@@ -53,7 +53,7 @@ MINING_RARITY_TIERS = {
             "prismarine shard",
             "enchanted golden apple",
         ],
-        "value_range": (60, 150),
+        "value_range": (250, 500),
         "weight": 4,
     },
     "Legendary": {
@@ -67,64 +67,7 @@ MINING_RARITY_TIERS = {
             "enchanted book",
             "dragon head",
         ],
-        "value_range": (150, 500),
-        "weight": 1,
-    },
-}
-
-FISHING_RARITY_TIERS = {
-    "Common": {
-        "items": [
-            "cod",
-            "salmon",
-            "pufferfish",
-            "tropical fish",
-        ],
-        "value_range": (1, 10),
-        "weight": 50,
-    },
-    "Uncommon": {
-        "items": [
-            "clownfish",
-            "swordfish",
-            "piranha",
-            "catfish",
-            "bass",
-        ],
-        "value_range": (10, 30),
-        "weight": 30,
-    },
-    "Rare": {
-        "items": [
-            "enchanted book",
-            "fishing rod",
-            "name tag",
-            "magma cream",
-            "ender pearl",
-        ],
-        "value_range": (30, 75),
-        "weight": 15,
-    },
-    "Epic": {
-        "items": [
-            "treasure map",
-            "nautilus shell",
-            "heart of the sea",
-            "ghost fish",
-            "fishing lure",
-        ],
-        "value_range": (75, 200),
-        "weight": 4,
-    },
-    "Legendary": {
-        "items": [
-            "trident",
-            "enchanted golden apple",
-            "dragon egg",
-            "elder guardian",
-            "rainbow fish",
-        ],
-        "value_range": (200, 500),
+        "value_range": (1500, 2000),
         "weight": 1,
     },
 }

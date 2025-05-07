@@ -20,7 +20,7 @@ def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional
 
 def validate_amount(amount: Optional[int], balance: int) -> Optional[str]:
     if amount is None or amount <= 0:
-        return "Invalid roll amount."
+        return "Invalid amount"
     if amount > balance:
         return f"You don't have enough balance to roll this amount. Current balance is ${format_number(balance)}."
     return None
@@ -115,9 +115,10 @@ async def perform_slots(bot, interaction, user_id, amount, action):
 
     if three_line_win:
         multiplier = 2
-        result = f"3 in a line! You win! {amount * 2}"
+        result = f"3 in a line! You win! ${format_number(amount * 2)}"
         color = discord.Color.green()
         final_balance = prev_balance + amount * 2
+        outcome = amount * 2
         stats["slots_won"] += 1
         win_status = True  # Win status is True when there's a line win
     elif max_special_fruits >= 3:
@@ -133,6 +134,7 @@ async def perform_slots(bot, interaction, user_id, amount, action):
         result = f"{max_special_fruits} {emoji} fruits! You win! ${format_number(amount * multiplier)}"
         color = discord.Color.green()
         final_balance = prev_balance + amount * multiplier
+        outcome = amount * multiplier
         stats["slots_won"] += 1
         win_status = True  # Win status is True when special fruits are 3 or more
     else:
@@ -140,10 +142,12 @@ async def perform_slots(bot, interaction, user_id, amount, action):
         color = discord.Color.red()
         final_balance = prev_balance - amount
         stats["slots_lost"] += 1
+        outcome = -amount
         win_status = False  # Win status is False when there are no matches
 
     # Update the user's balance and game stats
-    await bot.database.user_db.set_balance(user_id, final_balance)
+    # await bot.database.user_db.set_balance(user_id, final_balance)
+    await bot.database.user_db.increment_balance(user_id, outcome)
 
     # Store the win status correctly for the event
     await bot.database.game_db.set_user_game_stats(
@@ -157,13 +161,9 @@ async def perform_slots(bot, interaction, user_id, amount, action):
 
     embed = discord.Embed(title="🎰 Slots", color=color)
     embed.add_field(name="Result", value=result, inline=False)
-    embed.add_field(name="Bet", value=f"${format_number(amount)}", inline=True)
-    embed.add_field(
-        name="Balance Before", value=f"${format_number(prev_balance)}", inline=True
-    )
-    embed.add_field(
-        name="Balance After", value=f"${format_number(final_balance)}", inline=True
-    )
+    embed.add_field(name="Bet", value=f"${amount:,}", inline=True)
+    embed.add_field(name="Previous Balance", value=f"${prev_balance:,}", inline=True)
+    embed.add_field(name="Current Balance", value=f"${final_balance:,}", inline=True)
     embed.set_footer(
         text=f"Slots Won: {stats['slots_won']} | Slots Lost: {stats['slots_lost']} | Slots Played: {stats['slots_played']}"
     )

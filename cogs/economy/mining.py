@@ -4,47 +4,53 @@ from discord import app_commands
 from discord.ext import commands
 from constants.mining_config import MINING_RARITY_TIERS
 from utils.formatting import format_number
+from utils.equips import get_tool_bonus, format_tool_display_name
 
 
 async def perform_mining(bot, user_id):
     """
-    Perform the mining operation and return the fished item, value, and new balance.
-
-    :param bot: The bot instance.
-    :param user_id: The ID of the user performing the mining operation.
+    Perform the mining operation and return the mined item, value, bonuses, and updated stats.
     """
-    # Weighted Random Selection of Rarity using random.choices
+    # Weighted Random Selection of Rarity
     rarities, weights = zip(
         *[(rarity, info["weight"]) for rarity, info in MINING_RARITY_TIERS.items()]
     )
-    selected_rarity = random.choices(rarities, weights, k=1)[
-        0
-    ]  # Select a rarity based on weight
-
-    # Randomly pick an item from the selected rarity tier
+    selected_rarity = random.choices(rarities, weights, k=1)[0]
     rarity_info = MINING_RARITY_TIERS[selected_rarity]
     mined_item = random.choice(rarity_info["items"])
-
-    # Randomly determine the value of the mined item within the value range
-    value = random.randint(rarity_info["value_range"][0], rarity_info["value_range"][1])
+    value = random.randint(*rarity_info["value_range"])
     xp_gained = random.randint(5, 10)
-    # Update user's work stats (total mined value and items mined)
+
+    # Get equipped tools
+    equipped_tools = await bot.database.inventory_db.get_equipped_tools(user_id)
+    pickaxe_name = equipped_tools.get("pickaxe")
+
     current_xp, next_level_xp, current_level = (
         await bot.database.work_db.set_work_stats(user_id, value, xp_gained, "mining")
     )
+
+    # Calculate bonuses
+    bonus_pct = get_tool_bonus(pickaxe_name) if pickaxe_name else 0.0
+    tool_bonus = int(value * bonus_pct)
     level_bonus = int((current_level * 0.05) * value)
 
+    # Final value to credit
+    total_value = value + level_bonus + tool_bonus
     balance = await bot.database.user_db.get_balance(user_id)
-    await bot.database.user_db.set_balance(user_id, balance + value + level_bonus)
+    new_balance = balance + total_value
+    # await bot.database.user_db.set_balance(user_id, new_balance)
+    await bot.database.user_db.increment_balance(user_id, total_value)
 
     return (
         mined_item,
         value,
         level_bonus,
+        tool_bonus,
         current_xp,
         current_level,
         next_level_xp,
-        balance + value + level_bonus,
+        new_balance,
+        pickaxe_name,
     )
 
 
@@ -53,37 +59,58 @@ def create_mining_embed(
     mined_item,
     value,
     level_bonus,
+    tool_bonus,
     current_xp,
     current_level,
     next_level_xp,
     new_balance,
+    pickaxe_name,
 ):
     """
-    Generate an embed for the mining result.
-
-    :param user: The user who performed the mining operation.
-    :param mined_item: The item that was mined.
-    :param value: The value of the mined item.
-    :param xp_gained: The XP earned from the mining operation.
-    :param new_balance: The new balance of the user after the mining operation.
+    Generate an embed for the mining result with level bonus as percentage and tool used.
     """
+    # Extract tool name from the equipped pickaxe (e.g., "Stone Pickaxe" for "pickaxe_stone")
+    tool_display_name = (
+        format_tool_display_name(pickaxe_name) if pickaxe_name else "No tool equipped"
+    )
+
+    # Calculate tool bonus as percentage
+    tool_bonus_pct = get_tool_bonus(pickaxe_name) * 100 if pickaxe_name else 0.0
+
+    level_bonus_pct = (
+        current_level * 5
+    )  # Level bonus as percentage (assuming 5% per level)
+
     embed = discord.Embed(
         title=f"⛏️ {user.display_name}'s Mining Results",
         description=f"You mined a **{mined_item}** worth **${format_number(value)}**!",
         color=discord.Color.green(),
     )
-    embed.add_field(
-        name="💰 New Balance", value=f"${format_number(new_balance)}", inline=True
-    )
+
+    # Add fields to the embed
+    # embed.add_field(
+    #     name="💰 New Balance", value=f"${format_number(new_balance)}", inline=True
+    # )
+    embed.add_field(name="💰 New Balance", value=f"${new_balance:,}", inline=True)
     embed.add_field(
         name="🔹 XP Progress",
-        value=f"LVL: {current_level} | XP:{current_xp}/{next_level_xp}",
+        value=f"LVL: {current_level} | XP: {current_xp}/{next_level_xp}",
         inline=True,
     )
     embed.add_field(
-        name="Level Bonus",
-        value=f"${format_number(level_bonus)}",
+        name="📈 Level Bonus",
+        value=f"${format_number(level_bonus)} ({level_bonus_pct}% from level {current_level})",
         inline=True,
+    )
+    embed.add_field(
+        name="🔧 Tool Bonus",
+        value=f"${format_number(tool_bonus)} ({int(tool_bonus_pct)}%)",
+        inline=True,
+    )
+    embed.add_field(
+        name="🛠️ Tool Used",
+        value=f"{tool_display_name}",
+        inline=False,
     )
 
     return embed
@@ -104,14 +131,18 @@ class MineAgainView(discord.ui.View):
         self.active_mining_sessions = active_mining_sessions
 
     async def on_timeout(self):
-        self.active_mining_sessions.discard(self.user_id)
+        self.active_mining_sessions.pop(self.user_id, None)
         for item in self.children:
             if isinstance(item, discord.ui.Button):
                 item.disabled = True
-        if self.message:
-            await self.message.edit(
-                content="Button timed out/Cooldown Finished", view=self
-            )
+        if hasattr(self, "message_id") and self.channel:
+            try:
+                message = await self.channel.fetch_message(self.message_id)
+                await message.edit(
+                    content="Button timed out / Cooldown Finished", view=self
+                )
+            except discord.HTTPException:
+                self.bot.logger.error("Mining message expired or missing")
 
     async def mine_again_button(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
@@ -131,15 +162,16 @@ class MineAgainView(discord.ui.View):
             )
             return
 
-        # Assume perform_mining & create_mining_embed are defined elsewhere
         (
             mined_item,
             value,
             level_bonus,
+            tool_bonus,
             current_xp,
             current_level,
             next_level_xp,
             new_balance,
+            pickaxe_name,
         ) = await perform_mining(self.bot, self.user_id)
 
         embed = create_mining_embed(
@@ -147,10 +179,12 @@ class MineAgainView(discord.ui.View):
             mined_item,
             value,
             level_bonus,
+            tool_bonus,
             current_xp,
             current_level,
             next_level_xp,
             new_balance,
+            pickaxe_name,
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -198,7 +232,7 @@ class MineAgainView(discord.ui.View):
 class Mining(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.active_mining_sessions = set()
+        self.active_mining_sessions = {}
 
     @app_commands.command(name="mine", description="Mine ores for money")
     async def mine(self, interaction: discord.Interaction):
@@ -208,8 +242,10 @@ class Mining(commands.Cog):
         :param interaction: The interaction object from Discord.
         """
         if interaction.user.id in self.active_mining_sessions:
+            previous_message = self.active_mining_sessions[interaction.user.id]
+            link = previous_message.jump_url
             await interaction.response.send_message(
-                "You are already mining or on a cooldown. Please wait.",
+                f"You are already mining or on a cooldown. [Jump to your previous mining message.]({link})",
             )
             return
 
@@ -220,28 +256,32 @@ class Mining(commands.Cog):
             mined_item,
             value,
             level_bonus,
+            tool_bonus,
             current_xp,
             current_level,
             next_level_xp,
             new_balance,
+            pickaxe_name,
         ) = await perform_mining(self.bot, interaction.user.id)
 
-        # Create the embed
+        # Create the embed with pickaxe_name
         embed = create_mining_embed(
             interaction.user,
             mined_item,
             value,
             level_bonus,
+            tool_bonus,
             current_xp,
             current_level,
             next_level_xp,
             new_balance,
+            pickaxe_name,
         )
-        self.active_mining_sessions.add(interaction.user.id)
-        # Initialize the MineAgainView with the bot and user_id
         view = MineAgainView(self.bot, interaction.user.id, self.active_mining_sessions)
-        # Send the embed with the MineAgainView
         view.message = await interaction.followup.send(embed=embed, view=view)
+        self.active_mining_sessions[interaction.user.id] = view.message
+        view.message_id = view.message.id
+        view.channel = interaction.channel
 
 
 async def setup(bot):

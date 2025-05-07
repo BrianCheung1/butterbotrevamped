@@ -16,5 +16,5 @@ def get_cooldown_response(
         next_available_time = last_time + cooldown
         relative = discord.utils.format_dt(next_available_time, style="R")
         absolute = discord.utils.format_dt(next_available_time, style="F")
-        return f"{prefix} Try again {relative} ({absolute})."
+        return f"{prefix} {relative} ({absolute})."
     return None
