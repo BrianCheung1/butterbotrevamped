@@ -23,7 +23,6 @@ class MyBot(commands.Bot):
         )
         self.logger = logger
         self.database = None
-        self.bot_prefix = os.getenv("PREFIX")
         self.invite_link = os.getenv("INVITE_LINK")
         self.active_blackjack_players = set()
 

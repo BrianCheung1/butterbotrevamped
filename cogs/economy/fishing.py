@@ -43,7 +43,7 @@ async def perform_fishing(bot, user_id):
     await bot.database.user_db.increment_balance(user_id, total_value)
 
     db_operation_time = time.time() - start_time
-    bot.logger.info(f"Database operation took {db_operation_time:.4f} seconds")
+    # bot.logger.info(f"Database operation took {db_operation_time:.4f} seconds")
 
     return (
         fished_item,

@@ -1,13 +1,13 @@
-import asyncio
 import discord
 import os
 import platform
-import traceback
 
 from datetime import datetime
 from discord import app_commands
 from discord.ext import commands
 from typing import Literal, Optional
+
+DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 
 
 class Development(commands.Cog):
@@ -33,6 +33,7 @@ class Development(commands.Cog):
             app_commands.Choice(name="Guild", value="guild"),
         ]
     )
+    @app_commands.guilds(DEV_GUILD_ID)
     async def sync(
         self, interaction: discord.Interaction, scope: app_commands.Choice[str]
     ) -> None:
@@ -53,17 +54,17 @@ class Development(commands.Cog):
             return
         elif scope.value == "guild":
             self.bot.tree.copy_global_to(guild=interaction.guild)
-            await self.bot.tree.sync(guild=interaction.guild)
+            num_of_guilds = await self.bot.tree.sync(guild=interaction.guild)
             embed = discord.Embed(
-                description="Slash commands have been synchronized in this guild.",
+                description=f"{len(num_of_guilds)} Slash commands have been synchronized in this guild.",
                 color=0xBEBEFE,
             )
-            await interaction.followup(embed=embed)
+            await interaction.followup.send(embed=embed)
             return
         embed = discord.Embed(
             description="The scope must be `global` or `guild`.", color=0xE02B2B
         )
-        await interaction.followup(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(
         name="unsync",
@@ -79,7 +80,10 @@ class Development(commands.Cog):
         ]
     )
     @app_commands.check(is_owner_check)
-    async def unsync(self, interaction: discord.Interaction, scope: str) -> None:
+    @app_commands.guilds(DEV_GUILD_ID)
+    async def unsync(
+        self, interaction: discord.Interaction, scope: app_commands.Choice[str]
+    ) -> None:
         """
         Unsynchonizes the slash commands.
 
@@ -87,7 +91,7 @@ class Development(commands.Cog):
         :param scope: The scope of the sync. Can be `global`, `current_guild` or `guild`.
         """
         await interaction.response.defer()
-        if scope.type == "global":
+        if scope.value == "global":
             self.bot.tree.clear_commands(guild=None)
             await self.bot.tree.sync()
             embed = discord.Embed(
@@ -96,7 +100,7 @@ class Development(commands.Cog):
             )
             await interaction.followup.send(embed=embed)
             return
-        elif scope.type == "guild":
+        elif scope.value == "guild":
             self.bot.tree.clear_commands(guild=interaction.guild)
             await self.bot.tree.sync(guild=interaction.guild)
             embed = discord.Embed(
@@ -116,6 +120,7 @@ class Development(commands.Cog):
     )
     @app_commands.describe(cog="The name of the cog to load")
     @app_commands.check(is_owner_check)
+    @app_commands.guilds(DEV_GUILD_ID)
     async def load(self, interaction: discord.Interaction, cog: str) -> None:
         """
         The bot will load the given cog.
@@ -142,6 +147,7 @@ class Development(commands.Cog):
     )
     @app_commands.describe(cog="The name of the cog to unload")
     @app_commands.check(is_owner_check)
+    @app_commands.guilds(DEV_GUILD_ID)
     async def unload(self, interaction: discord.Interaction, cog: str) -> None:
         """
         The bot will unload the given cog.
@@ -165,6 +171,7 @@ class Development(commands.Cog):
     @app_commands.command(name="reload", description="Reloads a cog.")
     @app_commands.describe(cog="The name of the cog to reload")
     @app_commands.check(is_owner_check)
+    @app_commands.guilds(DEV_GUILD_ID)
     async def reload(
         self,
         interaction: discord.Interaction,
@@ -223,6 +230,7 @@ class Development(commands.Cog):
         description="Make the bot shutdown.",
     )
     @app_commands.check(is_owner_check)
+    @app_commands.guilds(DEV_GUILD_ID)
     async def shutdown(self, interaction: discord.Interaction) -> None:
         """
         Shuts down the bot.
@@ -333,6 +341,7 @@ class Development(commands.Cog):
     )
     @app_commands.check(is_owner_check)
     @app_commands.checks.cooldown(1, 10.0, key=lambda i: (i.user.id))
+    @app_commands.guilds(DEV_GUILD_ID)
     async def debug(self, interaction: discord.Interaction) -> None:
         """
         Debug the bot.

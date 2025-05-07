@@ -119,3 +119,10 @@ CREATE TABLE IF NOT EXISTS user_work_stats (
     fishing_next_level_xp INTEGER DEFAULT 50,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
+
+
+CREATE TABLE IF NOT EXISTS players (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    tag TEXT NOT NULL
+)

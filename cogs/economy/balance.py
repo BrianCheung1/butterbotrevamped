@@ -2,6 +2,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.formatting import format_number
+import os
+
+DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 
 
 class Balance(commands.Cog):
@@ -41,6 +44,7 @@ class Balance(commands.Cog):
         name="setbalance", description="Set a user's balance. (Admin only)"
     )
     @app_commands.check(is_owner_check)
+    @app_commands.guilds(DEV_GUILD_ID)
     async def set_balance(
         self, interaction: discord.Interaction, user: discord.User, amount: int
     ) -> None:
