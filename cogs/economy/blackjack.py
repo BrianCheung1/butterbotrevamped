@@ -6,6 +6,7 @@ from typing import Optional
 from constants.game_config import GameEventType
 from collections import defaultdict
 from utils.formatting import format_number
+from utils.balance_helper import validate_amount
 
 
 def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional[int]:
@@ -16,15 +17,6 @@ def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional
     elif action == "25%":
         return balance // 4
     return None
-
-
-def validate_amount(amount: Optional[int], balance: int) -> Optional[str]:
-    if amount is None or amount <= 0:
-        return "Invalid amount"
-    if amount > balance:
-        return f"You don't have enough balance to play blackjack. Current balance is ${format_number(balance)}."
-    return None
-
 
 EMOJI_MAP = {
     "A": ":a:",

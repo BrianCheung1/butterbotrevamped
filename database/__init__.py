@@ -5,6 +5,7 @@ from .game_db import GameDatabaseManager
 from .bank_db import BankDatabaseManager
 from .inventory_db import InventoryDatabaseManager
 from .players_db import PlayersDatabaseManager
+from .heist_db import HeistDatabaseManager
 
 import aiosqlite
 from logger import setup_logger
@@ -24,6 +25,7 @@ class DatabaseManager:
         self.bank_db = BankDatabaseManager(connection, self)
         self.inventory_db = InventoryDatabaseManager(connection, self)
         self.players_db = PlayersDatabaseManager(connection)
+        self.heist_db = HeistDatabaseManager(connection, self)
 
     async def _create_user_if_not_exists(self, user_id: int) -> None:
         async with self.connection.execute(

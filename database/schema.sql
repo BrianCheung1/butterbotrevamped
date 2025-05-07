@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS user_work_stats (
 
 
 CREATE TABLE IF NOT EXISTS players (
-    id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
-    tag TEXT NOT NULL
+    tag TEXT NOT NULL,
+    PRIMARY KEY (name, tag)
 )
