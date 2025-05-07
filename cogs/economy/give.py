@@ -26,7 +26,7 @@ class Give(commands.Cog):
                 "You are in a Blackjack game! Please finish the game first",
             )
             return
-        if interaction.user.id == user_id:
+        if interaction.user.id == target_id:
             await interaction.followup.send("You can't give money to yourself!")
             return
 
