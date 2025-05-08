@@ -19,7 +19,7 @@ SHOP_ITEMS = {
             "stone": {
                 "name": "Stone Pickaxe",
                 "description": "Increases your mining bonus by 20%",
-                "price": 20_000,
+                "price": 50_000,
                 "effect": "mining_bonus_increase",
                 "level_required": 20,
                 "bonus": 0.20,
@@ -27,7 +27,7 @@ SHOP_ITEMS = {
             "copper": {
                 "name": "Copper Pickaxe",
                 "description": "Increases your mining bonus by 40%",
-                "price": 40_000,
+                "price": 100_000,
                 "effect": "mining_bonus_increase",
                 "level_required": 30,
                 "bonus": 0.40,
@@ -35,7 +35,7 @@ SHOP_ITEMS = {
             "iron": {
                 "name": "Iron Pickaxe",
                 "description": "Increases your mining bonus by 80%",
-                "price": 70_000,
+                "price": 500_000,
                 "effect": "mining_bonus_increase",
                 "level_required": 40,
                 "bonus": 0.80,
@@ -43,7 +43,7 @@ SHOP_ITEMS = {
             "gold": {
                 "name": "Gold Pickaxe",
                 "description": "Increases your mining bonus by 160%",
-                "price": 110_000,
+                "price": 1_000_000,
                 "effect": "mining_bonus_increase",
                 "level_required": 50,
                 "bonus": 1.60,
@@ -51,7 +51,7 @@ SHOP_ITEMS = {
             "diamond": {
                 "name": "Diamond Pickaxe",
                 "description": "Increases your mining bonus by 320%",
-                "price": 160_000,
+                "price": 5_000_000,
                 "effect": "mining_bonus_increase",
                 "level_required": 60,
                 "bonus": 3.20,
@@ -59,7 +59,7 @@ SHOP_ITEMS = {
             "netherite": {
                 "name": "Netherite Pickaxe",
                 "description": "Increases your mining bonus by 640%",
-                "price": 220_000,
+                "price": 10_000_000,
                 "effect": "mining_bonus_increase",
                 "level_required": 70,
                 "bonus": 6.40,
@@ -77,7 +77,7 @@ SHOP_ITEMS = {
             "stone": {
                 "name": "Stone Fishing Rod",
                 "description": "Increases your fishing bonus by 20%",
-                "price": 20_000,
+                "price": 50_000,
                 "effect": "fishing_bonus_increase",
                 "level_required": 20,
                 "bonus": 0.20,
@@ -85,7 +85,7 @@ SHOP_ITEMS = {
             "copper": {
                 "name": "Copper Fishing Rod",
                 "description": "Increases your fishing bonus by 40%",
-                "price": 40_000,
+                "price": 100_000,
                 "effect": "fishing_bonus_increase",
                 "level_required": 30,
                 "bonus": 0.40,
@@ -93,7 +93,7 @@ SHOP_ITEMS = {
             "iron": {
                 "name": "Iron Fishing Rod",
                 "description": "Increases your fishing bonus by 80%",
-                "price": 70_000,
+                "price": 500_000,
                 "effect": "fishing_bonus_increase",
                 "level_required": 40,
                 "bonus": 0.80,
@@ -101,7 +101,7 @@ SHOP_ITEMS = {
             "gold": {
                 "name": "Gold Fishing Rod",
                 "description": "Increases your fishing bonus by 160%",
-                "price": 110_000,
+                "price": 1_000_000,
                 "effect": "fishing_bonus_increase",
                 "level_required": 50,
                 "bonus": 1.60,
@@ -109,7 +109,7 @@ SHOP_ITEMS = {
             "diamond": {
                 "name": "Diamond Fishing Rod",
                 "description": "Increases your fishing bonus by 320%",
-                "price": 160_000,
+                "price": 5_000_000,
                 "effect": "fishing_bonus_increase",
                 "level_required": 60,
                 "bonus": 3.20,
@@ -117,7 +117,7 @@ SHOP_ITEMS = {
             "netherite": {
                 "name": "Netherite Fishing Rod",
                 "description": "Increases your fishing bonus by 640%",
-                "price": 220_000,
+                "price": 10_000_000,
                 "effect": "fishing_bonus_increase",
                 "level_required": 70,
                 "bonus": 6.40,

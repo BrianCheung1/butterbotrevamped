@@ -38,6 +38,7 @@ async def perform_mining(bot, user_id):
     # Final value to credit
     total_value = value + level_bonus + tool_bonus
     balance = await bot.database.user_db.get_balance(user_id)
+    prev_balance = balance
     new_balance = balance + total_value
     # await bot.database.user_db.set_balance(user_id, new_balance)
     await bot.database.user_db.increment_balance(user_id, total_value)
@@ -50,6 +51,7 @@ async def perform_mining(bot, user_id):
         current_xp,
         current_level,
         next_level_xp,
+        prev_balance,
         new_balance,
         pickaxe_name,
     )
@@ -64,6 +66,7 @@ def create_mining_embed(
     current_xp,
     current_level,
     next_level_xp,
+    prev_balance,
     new_balance,
     pickaxe_name,
 ):
@@ -92,7 +95,11 @@ def create_mining_embed(
     # embed.add_field(
     #     name="💰 New Balance", value=f"${format_number(new_balance)}", inline=True
     # )
+    embed.add_field(name="💰 Prev Balance", value=f"${prev_balance:,}", inline=True)
     embed.add_field(name="💰 New Balance", value=f"${new_balance:,}", inline=True)
+    embed.add_field(
+        name="💰 Total Earned", value=f"${new_balance-prev_balance:,}", inline=True
+    )
     embed.add_field(
         name="🔹 XP Progress",
         value=f"LVL: {current_level} | XP: {current_xp}/{next_level_xp}",
@@ -103,16 +110,18 @@ def create_mining_embed(
         value=f"${format_number(level_bonus)} ({level_bonus_pct}% from level {current_level})",
         inline=True,
     )
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
+    embed.add_field(
+        name="🛠️ Tool Used",
+        value=f"{tool_display_name}",
+        inline=True,
+    )
     embed.add_field(
         name="🔧 Tool Bonus",
         value=f"${format_number(tool_bonus)} ({int(tool_bonus_pct)}%)",
         inline=True,
     )
-    embed.add_field(
-        name="🛠️ Tool Used",
-        value=f"{tool_display_name}",
-        inline=False,
-    )
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
 
     return embed
 
@@ -174,6 +183,7 @@ class MineAgainView(discord.ui.View):
             current_xp,
             current_level,
             next_level_xp,
+            prev_balance,
             new_balance,
             pickaxe_name,
         ) = await perform_mining(self.bot, self.user_id)
@@ -187,6 +197,7 @@ class MineAgainView(discord.ui.View):
             current_xp,
             current_level,
             next_level_xp,
+            prev_balance,
             new_balance,
             pickaxe_name,
         )
@@ -265,6 +276,7 @@ class Mining(commands.Cog):
             current_xp,
             current_level,
             next_level_xp,
+            prev_balance,
             new_balance,
             pickaxe_name,
         ) = await perform_mining(self.bot, interaction.user.id)
@@ -279,6 +291,7 @@ class Mining(commands.Cog):
             current_xp,
             current_level,
             next_level_xp,
+            prev_balance,
             new_balance,
             pickaxe_name,
         )
