@@ -1,4 +1,5 @@
 from functools import wraps
+
 from logger import setup_logger
 
 logger = setup_logger("DatabaseErrorHandler")

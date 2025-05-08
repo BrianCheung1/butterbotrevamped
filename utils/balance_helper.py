@@ -1,4 +1,5 @@
 from typing import Optional
+from utils.formatting import format_number
 
 
 def validate_amount(amount: Optional[int], balance: int) -> Optional[str]:

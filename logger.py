@@ -1,4 +1,5 @@
 import logging
+
 import colorama
 
 colorama.init(autoreset=True)

@@ -211,7 +211,7 @@ class ValorantMMRHistory(commands.Cog):
         embed.add_field(name="Starting RR", value=str(starting_elo % 100), inline=True)
         embed.add_field(name="\u200b", value="\u200b", inline=True)
         embed.add_field(name="Current Rank", value=current_rank, inline=True)
-        embed.add_field(name="Current RRR", value=str(current_rr), inline=True)
+        embed.add_field(name="Current RR", value=str(current_rr), inline=True)
         embed.add_field(name="\u200b", value="\u200b", inline=True)
         embed.add_field(
             name="Match History (Latest → Oldest)", value=grouped_matches, inline=False

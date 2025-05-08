@@ -363,6 +363,27 @@ class Development(commands.Cog):
         )
         await interaction.followup.send(embed=embed)
 
+    @app_commands.command(
+        name="migrate",
+        description="Migrate a user's level data to 25% XP scaling.",
+    )
+    @app_commands.check(is_owner_check)
+    @app_commands.guilds(DEV_GUILD_ID)
+    async def migrate(
+        self, interaction: discord.Interaction, user: discord.User
+    ) -> None:
+        """
+        Migrate a single user's work stats to new XP formula with logging.
+
+        :param interaction: The command interaction.
+        :param user: The user to migrate.
+        """
+        await interaction.response.send_message(
+            "Starting migration to 25% level growth...", ephemeral=True
+        )
+        await self.bot.database.work_db.migrate_work_levels_to_25_percent_growth()
+        await interaction.followup.send("✅ Migration complete!", ephemeral=True)
+
     @commands.Cog.listener()
     async def on_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError

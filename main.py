@@ -1,11 +1,13 @@
 import os
+from datetime import datetime
+
 import aiosqlite
 import discord
-from datetime import datetime
 from discord.ext import commands
 from dotenv import load_dotenv
-from logger import setup_logger
+
 from database import DatabaseManager
+from logger import setup_logger
 
 # Load environment variables from .env file
 load_dotenv()
@@ -61,13 +63,13 @@ class MyBot(commands.Bot):
         self.logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         self.logger.info(f"Ping: {round(self.latency * 1000)} ms")
         self.logger.info("-------------------")
-        await self.load_cogs()
         await self.init_db()
         self.database = DatabaseManager(
             connection=await aiosqlite.connect(
                 f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
             )
         )
+        await self.load_cogs()
 
     async def on_message(self, message: discord.Message) -> None:
         """
