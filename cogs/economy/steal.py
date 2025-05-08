@@ -198,7 +198,7 @@ class StealStatusView(discord.ui.View):
 
         lines = []
 
-        for row in slice_data:
+        for i, row in enumerate(slice_data, start=0):  # start=1 for 1-based indexing
             user_id = row["user_id"]
             user = self.interaction.guild.get_member(user_id)
 
@@ -206,7 +206,7 @@ class StealStatusView(discord.ui.View):
                 msg = get_cooldown_response(
                     row["last_stolen_from_at"],
                     STOLEN_FROM_COOLDOWN,
-                    f"{user.mention} can be stolen from ",
+                    f"{i}. {user.mention} can be stolen from ",
                 )
                 if msg:  # Ensure msg is not None
                     lines.append(msg)

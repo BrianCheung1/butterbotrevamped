@@ -192,7 +192,7 @@ class HeistBetModal(discord.ui.Modal, title="Enter Your Heist Bet"):
         user_id = self.user.id
 
         # ❗ Check if the join button is disabled (heist started)
-        if not any(button.enabled for button in self.view.children):
+        if all(button.disabled for button in self.view.children):
             await interaction.response.send_message(
                 "❌ The heist has already started! You can't join now.", ephemeral=True
             )

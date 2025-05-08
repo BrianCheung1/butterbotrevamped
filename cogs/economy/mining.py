@@ -118,7 +118,7 @@ def create_mining_embed(
 
 class MineAgainView(discord.ui.View):
     def __init__(self, bot, user_id, active_mining_sessions):
-        super().__init__(timeout=1800)
+        super().__init__(timeout=14400)
         self.bot = bot
         self.user_id = user_id
         self.clicks = 0
@@ -152,13 +152,15 @@ class MineAgainView(discord.ui.View):
             )
             return
 
+        await interaction.response.defer()
+
         self.clicks += 1
 
         if self.clicks >= self.click_threshold:
             self.mine_again_btn.disabled = True
             self.correct_color = random.choice(["Red", "Green", "Blue"])
             self.add_color_buttons()
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content=f"Pick **{self.correct_color}** to mine again!", view=self
             )
             return
@@ -187,7 +189,7 @@ class MineAgainView(discord.ui.View):
             new_balance,
             pickaxe_name,
         )
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     def add_color_buttons(self):
         for color, style in [

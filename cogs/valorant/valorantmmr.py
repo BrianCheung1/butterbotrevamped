@@ -20,10 +20,11 @@ class ValorantMMRHistory(commands.Cog):
         self.cached_players = (
             set()
         )  # Cache for player names and tags (using set to prevent duplicates)
-        
-    async def cog_ready(self):
+
+    async def cog_load(self):
+        """Called when the cog is loaded."""
         await self.load_cached_players()
-    
+
     async def load_cached_players(self):
         """Load cached players when cog is loaded"""
         saved_players = await self.bot.database.players_db.get_saved_players()

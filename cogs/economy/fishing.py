@@ -159,13 +159,15 @@ class FishAgainView(discord.ui.View):
             )
             return
 
+        await interaction.response.defer()
+
         self.clicks += 1
 
         if self.clicks >= self.click_threshold:
             self.fish_again_btn.disabled = True
             self.correct_color = random.choice(["Red", "Green", "Blue"])
             self.add_color_buttons()
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content=f"Pick **{self.correct_color}** to fish again!", view=self
             )
             return
@@ -195,7 +197,7 @@ class FishAgainView(discord.ui.View):
             fishingrod_name,
         )
 
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     def add_color_buttons(self):
         for color, style in [

@@ -8,6 +8,7 @@ from discord.ext import commands
 from typing import Literal, Optional
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
+OWNER_ID = int(os.getenv("OWNER_ID"))
 
 
 class Development(commands.Cog):
@@ -18,7 +19,7 @@ class Development(commands.Cog):
     def is_owner_check(interaction: discord.Interaction) -> bool:
         return (
             interaction.user.id == interaction.client.owner_id
-            or interaction.user.id == 1047615361886982235
+            or interaction.user.id == OWNER_ID
         )
 
     @app_commands.command(
