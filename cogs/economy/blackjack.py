@@ -1,12 +1,13 @@
-import discord
 import random
+from collections import defaultdict
+from typing import Optional
+
+import discord
+from constants.game_config import GameEventType
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional
-from constants.game_config import GameEventType
-from collections import defaultdict
-from utils.formatting import format_number
 from utils.balance_helper import validate_amount
+from utils.formatting import format_number
 
 
 def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional[int]:
@@ -17,6 +18,7 @@ def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional
     elif action == "25%":
         return balance // 4
     return None
+
 
 EMOJI_MAP = {
     "A": ":a:",
@@ -210,7 +212,6 @@ class BlackjackView(discord.ui.View):
 
     async def on_timeout(self):
         self.bot.active_blackjack_players.discard(self.user_id)
-        current_balance = await self.bot.database.user_db.get_balance(self.user_id)
         if self.interaction:
             await self.interaction.edit_original_response(
                 content=f"⏰ Game timed out due to inactivity. You lost your bet of ${format_number(self.amount)}.",

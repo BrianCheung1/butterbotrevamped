@@ -1,11 +1,12 @@
-import discord
 import random
 import time
+
+import discord
+from constants.fishing_config import FISHING_RARITY_TIERS
 from discord import app_commands
 from discord.ext import commands
-from constants.fishing_config import FISHING_RARITY_TIERS
+from utils.equips import format_tool_display_name, get_tool_bonus
 from utils.formatting import format_number
-from utils.equips import get_tool_bonus, format_tool_display_name
 
 
 async def perform_fishing(bot, user_id):

@@ -1,9 +1,9 @@
 import discord
+from constants.shop_config import SHOP_ITEMS
 from discord import app_commands
 from discord.ext import commands
 from utils.formatting import format_number
 from utils.shop_helpers import get_all_shop_items, get_shop_item_data
-from constants.shop_config import SHOP_ITEMS
 
 
 class Shop(commands.Cog):
@@ -168,7 +168,6 @@ def generate_shop_pages(user_id, shop_data, user_levels):
             title=f"🛠️ {tool_type.capitalize()}s", color=discord.Color.green()
         )
         stat_key = "mining_level" if tool_type == "pickaxe" else "fishing_level"
-        user_level = user_levels.get(stat_key, 0)
 
         for rarity, data in variants.items():
             cost = data["price"]

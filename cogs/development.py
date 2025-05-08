@@ -1,11 +1,11 @@
-import discord
 import os
 import platform
-
 from datetime import datetime
+from typing import Literal, Optional
+
+import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Literal, Optional
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 OWNER_ID = int(os.getenv("OWNER_ID"))
@@ -208,7 +208,7 @@ class Development(commands.Cog):
 
                 if failed_cogs:
                     embed = discord.Embed(
-                        description=f"⚠️ Some cogs failed to reload:\n"
+                        description="⚠️ Some cogs failed to reload:\n"
                         + "\n".join(failed_cogs),
                         title="Failed to Reload Cogs",
                         color=0xE02B2B,

@@ -1,6 +1,7 @@
-import discord
 import asyncio
 import random
+
+import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.balance_helper import validate_amount
@@ -41,7 +42,7 @@ class Heist(commands.Cog):
         self.active_heist_creators.add(user_id)
         view = HeistButtonView(self.bot, interaction, self.active_heist_creators)
         await interaction.response.send_message(
-            f"💣 A heist is being planned! Click below to join...",
+            "💣 A heist is being planned! Click below to join...",
             view=view,
         )
 

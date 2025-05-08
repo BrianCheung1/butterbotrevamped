@@ -1,8 +1,9 @@
+from typing import List
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.formatting import format_number
-from typing import List
 
 
 class LeaderboardView(discord.ui.View):

@@ -1,9 +1,9 @@
-import discord
+from typing import Optional
 
+import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.formatting import format_number
-from typing import Optional
 
 
 class Give(commands.Cog):

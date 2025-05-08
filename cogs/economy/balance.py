@@ -1,8 +1,9 @@
+import os
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.formatting import format_number
-import os
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 

@@ -1,10 +1,10 @@
-import discord
 import random
+from typing import Optional
+
+import discord
+from constants.game_config import GameEventType
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional
-from constants.game_config import GameEventType
-from utils.formatting import format_number
 from utils.balance_helper import validate_amount
 
 
