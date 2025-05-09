@@ -6,6 +6,16 @@ SHOP_ITEMS = {
         "price_increment": 500_000,
         "effect": "bank_cap_increase",
     },
+    "buffs": {
+        "exp": {
+            "name": "Exp Boost 150%",
+            "description": "Increase your experience gained by 150% for 30 mins",
+            "price": 500_000,
+            "buff_type": "exp",
+            "multiplier": 1.5,
+            "duration": 30,
+        }
+    },
     "tools": {
         "pickaxe": {
             "wooden": {

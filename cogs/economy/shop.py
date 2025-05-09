@@ -1,3 +1,6 @@
+import datetime
+from datetime import timedelta, timezone
+
 import discord
 from constants.shop_config import SHOP_ITEMS
 from discord import app_commands
@@ -101,6 +104,14 @@ class Shop(commands.Cog):
         # Apply item
         if item_key == "bank_upgrade":
             await self.bot.database.bank_db.set_bank_level_and_cap(user_id)
+        elif "buff_type" in item_data:
+            buff_type = item_data["buff_type"]
+            multiplier = item_data["multiplier"]
+            duration = item_data["duration"]
+            await self.bot.database.buffs_db.set_buff(
+                user_id, buff_type, multiplier, duration
+            )
+
         else:
             await self.bot.database.inventory_db.add_item(user_id, item_key)
 
@@ -109,7 +120,12 @@ class Shop(commands.Cog):
         # Suggest equipping if it's a tool
         if item_key.startswith("pickaxe") or item_key.startswith("fishingrod"):
             message += "\nUse the `/equip` command to equip it and gain its benefits."
-
+        if "buff_type" in item_data:
+            expires_at = datetime.datetime.now(timezone.utc) + timedelta(
+                minutes=duration
+            )
+            relative = discord.utils.format_dt(expires_at, style="R")
+            message += f"\nYour buff expires {relative}"
         await interaction.followup.send(message)
 
 
@@ -164,6 +180,7 @@ def generate_shop_pages(user_id, shop_data, user_levels):
 
     # Tool pages
     for tool_type, variants in shop_data["tools"].items():
+        tool_type = tool_type.replace("fishingrod", "fishing rod")
         embed = discord.Embed(
             title=f"🛠️ {tool_type.capitalize()}s", color=discord.Color.green()
         )
@@ -180,6 +197,14 @@ def generate_shop_pages(user_id, shop_data, user_levels):
             )
         pages.append(embed)
 
+    for buff_key, buff_data in shop_data.get("buffs", {}).items():
+        embed = discord.Embed(title="Buffs", color=discord.Color.purple())
+        embed.add_field(
+            name=buff_data["name"],
+            value=f"{buff_data['description']}\nCost: {format_number(buff_data['price'])}\nDuration: {buff_data['duration']} minutes\nMultiplier: {buff_data['multiplier']}x",
+            inline=False,
+        )
+        pages.append(embed)
     return pages
 
 

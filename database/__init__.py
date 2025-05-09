@@ -3,6 +3,7 @@ import aiosqlite
 from logger import setup_logger
 
 from .bank_db import BankDatabaseManager
+from .buffs_db import BuffsDatabaseManager
 from .game_db import GameDatabaseManager
 from .heist_db import HeistDatabaseManager
 from .inventory_db import InventoryDatabaseManager
@@ -10,7 +11,6 @@ from .players_db import PlayersDatabaseManager
 from .steal_db import StealDatabaseManager
 from .user_db import UserDatabaseManager
 from .work_db import WorkDatabaseManager
-from .buffs_db import BuffsDatabaseManager
 
 logger = setup_logger("DatabaseManagerBase")
 
@@ -48,6 +48,7 @@ class DatabaseManager:
             ("INSERT INTO user_player_stats (user_id) VALUES (?)", (user_id,)),
             ("INSERT INTO user_bank_stats (user_id) VALUES (?)", (user_id,)),
             ("INSERT INTO user_work_stats (user_id) VALUES (?)", (user_id,)),
+            ("INSERT INTO user_equipped_tools (user_id) VALUES (?)", (user_id,)),
         ]
         try:
             async with self.connection.execute("BEGIN"):

@@ -9,9 +9,6 @@ from utils.formatting import format_number
 
 
 async def perform_mining(bot, user_id):
-    """
-    Perform the mining operation and return the mined item, value, bonuses, and updated stats.
-    """
     # Weighted Random Selection of Rarity
     rarities, weights = zip(
         *[(rarity, info["weight"]) for rarity, info in MINING_RARITY_TIERS.items()]
@@ -20,7 +17,26 @@ async def perform_mining(bot, user_id):
     rarity_info = MINING_RARITY_TIERS[selected_rarity]
     mined_item = random.choice(rarity_info["items"])
     value = random.randint(*rarity_info["value_range"])
-    xp_gained = random.randint(5, 10)
+    xp_gained_base = random.randint(5, 10)
+
+    # Get buffs
+    buffs = await bot.database.buffs_db.get_buffs(user_id)
+    buff = buffs.get("exp")
+    buff_bonus_xp = 0
+    buff_expiry_str = None
+
+    if buff:
+        multiplier = buff["multiplier"]
+        xp_gained = int(xp_gained_base * multiplier)
+        buff_bonus_xp = xp_gained - xp_gained_base
+
+        if "expires_at" in buff:
+            expires_at_ts = int(buff["expires_at"].timestamp())
+            buff_expiry_str = f"<t:{expires_at_ts}:R>"
+        elif "uses_left" in buff:
+            buff_expiry_str = f"{buff['uses_left']} uses left"
+    else:
+        xp_gained = xp_gained_base
 
     # Get equipped tools
     equipped_tools = await bot.database.inventory_db.get_equipped_tools(user_id)
@@ -40,7 +56,6 @@ async def perform_mining(bot, user_id):
     balance = await bot.database.user_db.get_balance(user_id)
     prev_balance = balance
     new_balance = balance + total_value
-    # await bot.database.user_db.set_balance(user_id, new_balance)
     await bot.database.user_db.increment_balance(user_id, total_value)
 
     return (
@@ -54,6 +69,9 @@ async def perform_mining(bot, user_id):
         prev_balance,
         new_balance,
         pickaxe_name,
+        xp_gained_base,
+        buff_bonus_xp,
+        buff_expiry_str,
     )
 
 
@@ -69,21 +87,15 @@ def create_mining_embed(
     prev_balance,
     new_balance,
     pickaxe_name,
+    xp_gained_base,
+    buff_bonus_xp,
+    buff_expiry_str,
 ):
-    """
-    Generate an embed for the mining result with level bonus as percentage and tool used.
-    """
-    # Extract tool name from the equipped pickaxe (e.g., "Stone Pickaxe" for "pickaxe_stone")
     tool_display_name = (
         format_tool_display_name(pickaxe_name) if pickaxe_name else "No tool equipped"
     )
-
-    # Calculate tool bonus as percentage
     tool_bonus_pct = get_tool_bonus(pickaxe_name) * 100 if pickaxe_name else 0.0
-
-    level_bonus_pct = (
-        current_level * 5
-    )  # Level bonus as percentage (assuming 5% per level)
+    level_bonus_pct = current_level * 5
 
     embed = discord.Embed(
         title=f"⛏️ {user.display_name}'s Mining Results",
@@ -91,26 +103,34 @@ def create_mining_embed(
         color=discord.Color.green(),
     )
 
-    # Add fields to the embed
-    # embed.add_field(
-    #     name="💰 New Balance", value=f"${format_number(new_balance)}", inline=True
-    # )
     embed.add_field(name="💰 Prev Balance", value=f"${prev_balance:,}", inline=True)
     embed.add_field(name="💰 New Balance", value=f"${new_balance:,}", inline=True)
     embed.add_field(
-        name="💰 Total Earned", value=f"${new_balance-prev_balance:,}", inline=True
+        name="💰 Total Earned", value=f"${new_balance - prev_balance:,}", inline=True
     )
-    embed.add_field(
-        name="🔹 XP Progress",
-        value=f"LVL: {current_level} | XP: {current_xp}/{next_level_xp}",
-        inline=True,
-    )
+
+    # XP info with buff bonus
+    xp_line = f"LVL: {current_level} | XP: {current_xp}/{next_level_xp}"
+    if buff_bonus_xp > 0:
+        xp_line += f"\n📊 Gained: {xp_gained_base} + {buff_bonus_xp} (buff)"
+
+    embed.add_field(name="🔹 XP Progress", value=xp_line, inline=True)
+
+    # Level & Tool Bonus
     embed.add_field(
         name="📈 Level Bonus",
         value=f"${format_number(level_bonus)} ({level_bonus_pct}% from level {current_level})",
         inline=True,
     )
-    embed.add_field(name="\u200b", value="\u200b", inline=True)
+    # Buff info
+    if buff_bonus_xp > 0:
+        embed.add_field(
+            name="⏳ XP Buff Status",
+            value=buff_expiry_str or "Active",
+            inline=True,
+        )
+    else:
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
     embed.add_field(
         name="🛠️ Tool Used",
         value=f"{tool_display_name}",
@@ -134,6 +154,7 @@ class MineAgainView(discord.ui.View):
         self.clicks = 0
         self.click_threshold = random.randint(20, 30)
         self.correct_color = None
+        self.colors_added = False
         self.mine_again_btn = discord.ui.Button(
             label="Mine Again", style=discord.ButtonStyle.green
         )
@@ -167,6 +188,9 @@ class MineAgainView(discord.ui.View):
         self.clicks += 1
 
         if self.clicks >= self.click_threshold:
+            if self.colors_added:
+                return
+            self.colors_added = True
             self.mine_again_btn.disabled = True
             self.correct_color = random.choice(["Red", "Green", "Blue"])
             self.add_color_buttons()
@@ -186,6 +210,9 @@ class MineAgainView(discord.ui.View):
             prev_balance,
             new_balance,
             pickaxe_name,
+            xp_gained_base,
+            buff_bonus_xp,
+            buff_expiry_str,
         ) = await perform_mining(self.bot, self.user_id)
 
         embed = create_mining_embed(
@@ -200,17 +227,20 @@ class MineAgainView(discord.ui.View):
             prev_balance,
             new_balance,
             pickaxe_name,
+            xp_gained_base,
+            buff_bonus_xp,
+            buff_expiry_str,
         )
         await interaction.edit_original_response(embed=embed, view=self)
 
     def add_color_buttons(self):
-        for item in self.children[:]:
-            if isinstance(item, discord.ui.Button) and item.label in {
-                "Red",
-                "Green",
-                "Blue",
-            }:
-                self.remove_item(item)
+        # for item in self.children[:]:
+        #     if isinstance(item, discord.ui.Button) and item.label in {
+        #         "Red",
+        #         "Green",
+        #         "Blue",
+        #     }:
+        #         self.remove_item(item)
         for color, style in [
             ("Green", discord.ButtonStyle.green),
             ("Red", discord.ButtonStyle.red),
@@ -235,7 +265,7 @@ class MineAgainView(discord.ui.View):
             for item in self.children:
                 if isinstance(item, discord.ui.Button) and item.label != "Mine Again":
                     self.remove_item(item)
-
+            self.colors_added = False
             self.mine_again_btn.disabled = False
             self.clicks = 0
             self.click_threshold = 200
@@ -286,6 +316,9 @@ class Mining(commands.Cog):
             prev_balance,
             new_balance,
             pickaxe_name,
+            xp_gained_base,
+            buff_bonus_xp,
+            buff_expiry_str,
         ) = await perform_mining(self.bot, interaction.user.id)
 
         # Create the embed with pickaxe_name
@@ -301,6 +334,9 @@ class Mining(commands.Cog):
             prev_balance,
             new_balance,
             pickaxe_name,
+            xp_gained_base,
+            buff_bonus_xp,
+            buff_expiry_str,
         )
         view = MineAgainView(self.bot, interaction.user.id, self.active_mining_sessions)
         view.message = await interaction.followup.send(embed=embed, view=view)

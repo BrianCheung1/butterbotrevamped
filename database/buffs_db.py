@@ -1,7 +1,8 @@
+import datetime
+from datetime import timezone
 from typing import Optional
 
 import aiosqlite
-import datetime
 
 from logger import setup_logger
 from utils.database_errors import db_error_handler
@@ -41,7 +42,10 @@ class BuffsDatabaseManager:
         ON CONFLICT(user_id, buff_type)
         DO UPDATE SET multiplier = excluded.multiplier, expires_at = excluded.expires_at
         """
-        await self.db.execute(query, (user_id, buff_type, multiplier, expires_at))
+        await self.connection.execute(
+            query, (user_id, buff_type, multiplier, expires_at)
+        )
+        await self.connection.commit()
 
     @db_error_handler
     async def get_buffs(self, user_id: int) -> dict:
@@ -58,12 +62,15 @@ class BuffsDatabaseManager:
         FROM user_buffs
         WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP
         """
-        rows = await self.db.fetch_all(query, (user_id,))
+        async with self.connection.execute(query, (user_id,)) as cursor:
+            rows = await cursor.fetchall()
 
         return {
             row["buff_type"]: {
                 "multiplier": row["multiplier"],
-                "expires_at": row["expires_at"],
+                "expires_at": datetime.datetime.strptime(
+                    row["expires_at"], "%Y-%m-%d %H:%M:%S.%f"
+                ).replace(tzinfo=timezone.utc),
             }
             for row in rows
         }

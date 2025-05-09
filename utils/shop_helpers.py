@@ -6,7 +6,7 @@ def get_all_shop_items():
 
     # Non-tool items (like bank_upgrade)
     for key, data in SHOP_ITEMS.items():
-        if key != "tools":
+        if key != "tools" and key != "buffs":
             items.append((key, data))
 
     # Tools (flattened with prefixed keys like "pickaxe_stone")
@@ -14,6 +14,9 @@ def get_all_shop_items():
         for variant_key, variant_data in variants.items():
             full_key = f"{tool_type}_{variant_key}"
             items.append((full_key, variant_data))
+
+    for buff_key, buff_data in SHOP_ITEMS.get("buffs", {}).items():
+        items.append((buff_key, buff_data))
 
     return items
 
@@ -25,6 +28,9 @@ def get_shop_item_data(item_key: str):
     if "_" in item_key:
         tool_type, variant = item_key.split("_", 1)
         return SHOP_ITEMS.get("tools", {}).get(tool_type, {}).get(variant)
+
+    if item_key in SHOP_ITEMS.get("buffs", {}):
+        return SHOP_ITEMS["buffs"].get(item_key)
 
     return None
 

@@ -20,7 +20,26 @@ async def perform_fishing(bot, user_id):
     rarity_info = FISHING_RARITY_TIERS[selected_rarity]
     fished_item = random.choice(rarity_info["items"])
     value = random.randint(*rarity_info["value_range"])
-    xp_gained = random.randint(5, 10)
+    xp_gained_base = random.randint(5, 10)
+
+    # Get buffs
+    buffs = await bot.database.buffs_db.get_buffs(user_id)
+    buff = buffs.get("exp")
+    buff_bonus_xp = 0
+    buff_expiry_str = None
+
+    if buff:
+        multiplier = buff["multiplier"]
+        xp_gained = int(xp_gained_base * multiplier)
+        buff_bonus_xp = xp_gained - xp_gained_base
+
+        if "expires_at" in buff:
+            expires_at_ts = int(buff["expires_at"].timestamp())
+            buff_expiry_str = f"<t:{expires_at_ts}:R>"
+        elif "uses_left" in buff:
+            buff_expiry_str = f"{buff['uses_left']} uses left"
+    else:
+        xp_gained = xp_gained_base
 
     # Get equipped tools
     equipped_tools = await bot.database.inventory_db.get_equipped_tools(user_id)
@@ -58,6 +77,9 @@ async def perform_fishing(bot, user_id):
         prev_balance,
         new_balance,
         fishingrod_name,
+        xp_gained_base,
+        buff_bonus_xp,
+        buff_expiry_str,
     )
 
 
@@ -73,6 +95,9 @@ def create_fishing_embed(
     prev_balance,
     new_balance,
     fishingrod_name,
+    xp_gained_base,
+    buff_bonus_xp,
+    buff_expiry_str,
 ):
     """
     Generate an embed for the fishing result with level bonus as percentage and tool used.
@@ -107,17 +132,26 @@ def create_fishing_embed(
     embed.add_field(
         name="💰 Total Earned", value=f"${new_balance-prev_balance:,}", inline=True
     )
-    embed.add_field(
-        name="🔹 XP Progress",
-        value=f"LVL: {current_level} | XP: {current_xp}/{next_level_xp}",
-        inline=True,
-    )
+    # XP info with buff bonus
+    xp_line = f"LVL: {current_level} | XP: {current_xp}/{next_level_xp}"
+    if buff_bonus_xp > 0:
+        xp_line += f"\n📊 Gained: {xp_gained_base} + {buff_bonus_xp} (buff)"
+
+    embed.add_field(name="🔹 XP Progress", value=xp_line, inline=True)
     embed.add_field(
         name="📈 Level Bonus",
         value=f"${format_number(level_bonus)} ({level_bonus_pct}% from level {current_level})",
         inline=True,
     )
-    embed.add_field(name="\u200b", value="\u200b", inline=True)
+    # Buff info
+    if buff_bonus_xp > 0:
+        embed.add_field(
+            name="⏳ XP Buff Status",
+            value=buff_expiry_str or "Active",
+            inline=True,
+        )
+    else:
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
 
     embed.add_field(
         name="🛠️ Tool Used",
@@ -142,6 +176,7 @@ class FishAgainView(discord.ui.View):
         self.clicks = 0
         self.click_threshold = random.randint(20, 30)
         self.correct_color = None
+        self.colors_added = False
         self.fish_again_btn = discord.ui.Button(
             label="Fish Again", style=discord.ButtonStyle.green
         )
@@ -175,6 +210,9 @@ class FishAgainView(discord.ui.View):
         self.clicks += 1
 
         if self.clicks >= self.click_threshold:
+            if self.colors_added:
+                return
+            self.colors_added = True
             self.fish_again_btn.disabled = True
             self.correct_color = random.choice(["Red", "Green", "Blue"])
             self.add_color_buttons()
@@ -194,6 +232,9 @@ class FishAgainView(discord.ui.View):
             prev_balance,
             new_balance,
             fishingrod_name,
+            xp_gained_base,
+            buff_bonus_xp,
+            buff_expiry_str,
         ) = await perform_fishing(self.bot, self.user_id)
 
         embed = create_fishing_embed(
@@ -208,18 +249,21 @@ class FishAgainView(discord.ui.View):
             prev_balance,
             new_balance,
             fishingrod_name,
+            xp_gained_base,
+            buff_bonus_xp,
+            buff_expiry_str,
         )
 
         await interaction.edit_original_response(embed=embed, view=self)
 
     def add_color_buttons(self):
-        for item in self.children[:]:
-            if isinstance(item, discord.ui.Button) and item.label in {
-                "Red",
-                "Green",
-                "Blue",
-            }:
-                self.remove_item(item)
+        # for item in self.children[:]:
+        # if isinstance(item, discord.ui.Button) and item.label in {
+        #     "Red",
+        #     "Green",
+        #     "Blue",
+        # }:
+        #     self.remove_item(item)
         for color, style in [
             ("Green", discord.ButtonStyle.green),
             ("Red", discord.ButtonStyle.red),
@@ -244,6 +288,7 @@ class FishAgainView(discord.ui.View):
             for item in self.children[:]:
                 if isinstance(item, discord.ui.Button) and item.label != "Fish Again":
                     self.remove_item(item)
+            self.colors_added = False
             self.fish_again_btn.disabled = False
             self.clicks = 0
             self.click_threshold = 200
@@ -286,6 +331,9 @@ class Fishing(commands.Cog):
             prev_balance,
             new_balance,
             fishingrod_name,
+            xp_gained_base,
+            buff_bonus_xp,
+            buff_expiry_str,
         ) = await perform_fishing(self.bot, interaction.user.id)
 
         embed = create_fishing_embed(
@@ -300,6 +348,9 @@ class Fishing(commands.Cog):
             prev_balance,
             new_balance,
             fishingrod_name,
+            xp_gained_base,
+            buff_bonus_xp,
+            buff_expiry_str,
         )
         view = FishAgainView(
             self.bot, interaction.user.id, self.active_fishing_sessions

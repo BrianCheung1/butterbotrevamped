@@ -1,4 +1,5 @@
 from typing import Optional
+
 from utils.formatting import format_number
 
 
