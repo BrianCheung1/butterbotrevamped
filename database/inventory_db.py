@@ -5,7 +5,7 @@ import aiosqlite
 from logger import setup_logger
 from utils.database_errors import db_error_handler
 
-logger = setup_logger("InventorybaseManager")
+logger = setup_logger("InventoryDatabaseManager")
 
 
 class InventoryDatabaseManager:

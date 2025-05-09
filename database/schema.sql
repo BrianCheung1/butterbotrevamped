@@ -120,9 +120,21 @@ CREATE TABLE IF NOT EXISTS user_work_stats (
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
+-- User Buffs Table
+CREATE TABLE IF NOT EXISTS user_buffs (
+    user_id INTEGER,
+    buff_type TEXT NOT NULL,             
+    multiplier REAL NOT NULL DEFAULT 1,  
+    expires_at TIMESTAMP NOT NULL,       
+    PRIMARY KEY (user_id, buff_type),
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
 
+-- Valorant Player Table
 CREATE TABLE IF NOT EXISTS players (
     name TEXT NOT NULL,
     tag TEXT NOT NULL,
     PRIMARY KEY (name, tag)
 )
+
+

@@ -166,6 +166,8 @@ async def perform_slots(bot, interaction, user_id, amount, action):
     view.message = await interaction.edit_original_response(
         content=board_display, embed=embed, view=view
     )
+    view.message_id = view.message.id
+    view.channel = interaction.channel
 
 
 class SlotsAgainView(discord.ui.View):
@@ -180,11 +182,17 @@ class SlotsAgainView(discord.ui.View):
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
-        try:
-            await self.message.edit(view=self)
-        except discord.NotFound:
-            self.bot.logger.debug("Message not found when disabling buttons.")
-            pass
+        # try:
+        #     await self.message.edit(view=self)
+        # except discord.NotFound:
+        #     self.bot.logger.debug("Message not found when disabling buttons.")
+        #     pass
+        if hasattr(self, "message_id") and self.channel:
+            try:
+                message = await self.channel.fetch_message(self.message_id)
+                await message.edit(view=self)
+            except discord.HTTPException:
+                self.bot.logger.error("slots message expired or missing")
 
     @discord.ui.button(label="Spin Again", style=discord.ButtonStyle.green)
     async def spin_again(

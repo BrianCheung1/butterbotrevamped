@@ -204,6 +204,13 @@ class MineAgainView(discord.ui.View):
         await interaction.edit_original_response(embed=embed, view=self)
 
     def add_color_buttons(self):
+        for item in self.children[:]:
+            if isinstance(item, discord.ui.Button) and item.label in {
+                "Red",
+                "Green",
+                "Blue",
+            }:
+                self.remove_item(item)
         for color, style in [
             ("Green", discord.ButtonStyle.green),
             ("Red", discord.ButtonStyle.red),
@@ -231,7 +238,7 @@ class MineAgainView(discord.ui.View):
 
             self.mine_again_btn.disabled = False
             self.clicks = 0
-            self.click_threshold += 200
+            self.click_threshold = 200
             await interaction.response.edit_message(
                 content="✅ Correct! You can mine again.", view=self
             )

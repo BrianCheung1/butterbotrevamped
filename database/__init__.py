@@ -10,6 +10,7 @@ from .players_db import PlayersDatabaseManager
 from .steal_db import StealDatabaseManager
 from .user_db import UserDatabaseManager
 from .work_db import WorkDatabaseManager
+from .buffs_db import BuffsDatabaseManager
 
 logger = setup_logger("DatabaseManagerBase")
 
@@ -27,6 +28,7 @@ class DatabaseManager:
         self.inventory_db = InventoryDatabaseManager(connection, self)
         self.players_db = PlayersDatabaseManager(connection)
         self.heist_db = HeistDatabaseManager(connection, self)
+        self.buffs_db = BuffsDatabaseManager(connection, self)
 
     async def _create_user_if_not_exists(self, user_id: int) -> None:
         async with self.connection.execute(
