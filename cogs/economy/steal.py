@@ -110,7 +110,7 @@ class Steal(commands.Cog):
 
             # Choose a percent within that tier
             percent = random.uniform(low, high)
-            if target_balance > 1_000_000:
+            if target_balance > 10_000_000:
                 percent *= 0.1
             stolen_amount = max(1, int(target_balance * percent))
             stolen_amount = min(stolen_amount, target_balance)

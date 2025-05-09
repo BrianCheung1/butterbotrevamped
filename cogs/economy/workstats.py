@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.formatting import format_number
+from utils.equips import format_tool_display_name, get_tool_bonus
 
 
 class WorkStats(commands.Cog):
@@ -20,6 +21,17 @@ class WorkStats(commands.Cog):
 
         stats = await self.bot.database.work_db.get_user_work_stats(user.id)
         work_stats = dict(stats["work_stats"])
+        # Get equipped tools
+        equipped_tools = await self.bot.database.inventory_db.get_equipped_tools(
+            user.id
+        )
+        pickaxe_name = equipped_tools.get("pickaxe", "none")
+        fishingrod_name = equipped_tools.get("fishingrod", "none")
+
+        pickaxe_bonus = get_tool_bonus(pickaxe_name) * 100 if pickaxe_name else 0.0
+        fishingrod_bonus = (
+            get_tool_bonus(fishingrod_name) * 100 if fishingrod_name else 0.0
+        )
 
         embed = discord.Embed(
             title=f"{user.display_name}'s Work Stats",
@@ -33,10 +45,11 @@ class WorkStats(commands.Cog):
         embed.add_field(
             name="⛏️ __Mining Stats__",
             value=(
-                f"**Total Mining:** {work_stats.get('total_mining', 0)}\n"
-                f"**Total Value:** ${format_number(work_stats.get('total_mining_value', 0))}\n"
+                f"**Total Mining Clicks:** {work_stats.get('total_mining', 0)}\n"
+                f"**Total Value Collected:** ${format_number(work_stats.get('total_mining_value', 0))}\n"
                 f"**Level:** {work_stats.get('mining_level', 1)}\n"
-                f"**XP:** {mining_xp}/{mining_next_level_xp} "
+                f"**XP:** {mining_xp}/{mining_next_level_xp}\n"
+                f"**Pickaxe:** {format_tool_display_name(pickaxe_name)} - {pickaxe_bonus}% Bonus"
             ),
             inline=False,
         )
@@ -48,10 +61,11 @@ class WorkStats(commands.Cog):
         embed.add_field(
             name="🎣 __Fishing Stats__",
             value=(
-                f"**Total Fishing:** {work_stats.get('total_fishing', 0)}\n"
-                f"**Total Value:** ${format_number(work_stats.get('total_fishing_value', 0))}\n"
+                f"**Total Fishing Clicks:** {work_stats.get('total_fishing', 0)}\n"
+                f"**Total Value Collected:** ${format_number(work_stats.get('total_fishing_value', 0))}\n"
                 f"**Level:** {work_stats.get('fishing_level', 1)}\n"
-                f"**XP:** {fishing_xp}/{fishing_next_level_xp} "
+                f"**XP:** {fishing_xp}/{fishing_next_level_xp}\n"
+                f"**Fishing Rod:** {format_tool_display_name(fishingrod_name)} - {fishingrod_bonus}% Bonus"
             ),
             inline=False,
         )
