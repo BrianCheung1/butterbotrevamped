@@ -11,6 +11,7 @@ from .players_db import PlayersDatabaseManager
 from .steal_db import StealDatabaseManager
 from .user_db import UserDatabaseManager
 from .work_db import WorkDatabaseManager
+from .movies_db import MoviesDatabaseManager
 
 logger = setup_logger("DatabaseManagerBase")
 
@@ -20,15 +21,21 @@ class DatabaseManager:
         self.connection = connection
         self.connection.row_factory = aiosqlite.Row
 
+        # Economy Database
         self.user_db = UserDatabaseManager(connection, self)
         self.work_db = WorkDatabaseManager(connection, self)
         self.steal_db = StealDatabaseManager(connection, self)
         self.game_db = GameDatabaseManager(connection, self)
         self.bank_db = BankDatabaseManager(connection, self)
         self.inventory_db = InventoryDatabaseManager(connection, self)
-        self.players_db = PlayersDatabaseManager(connection)
         self.heist_db = HeistDatabaseManager(connection, self)
         self.buffs_db = BuffsDatabaseManager(connection, self)
+
+        # Valorant Database
+        self.players_db = PlayersDatabaseManager(connection)
+
+        # Movies Database
+        self.movies_db = MoviesDatabaseManager(connection)
 
     async def _create_user_if_not_exists(self, user_id: int) -> None:
         async with self.connection.execute(

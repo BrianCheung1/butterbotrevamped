@@ -1,4 +1,5 @@
 import random
+from time import time
 
 import discord
 from constants.mining_config import MINING_RARITY_TIERS
@@ -42,7 +43,7 @@ async def perform_mining(bot, user_id):
     equipped_tools = await bot.database.inventory_db.get_equipped_tools(user_id)
     pickaxe_name = equipped_tools.get("pickaxe")
 
-    current_xp, next_level_xp, current_level = (
+    current_xp, next_level_xp, current_level, leveled_up = (
         await bot.database.work_db.set_work_stats(user_id, value, xp_gained, "mining")
     )
 
@@ -72,6 +73,7 @@ async def perform_mining(bot, user_id):
         xp_gained_base,
         buff_bonus_xp,
         buff_expiry_str,
+        leveled_up,
     )
 
 
@@ -147,8 +149,8 @@ def create_mining_embed(
 
 
 class MineAgainView(discord.ui.View):
-    def __init__(self, bot, user_id, active_mining_sessions):
-        super().__init__(timeout=14400)
+    def __init__(self, bot, user_id, active_mining_sessions, cooldowns, failures):
+        super().__init__(timeout=None)
         self.bot = bot
         self.user_id = user_id
         self.clicks = 0
@@ -161,6 +163,9 @@ class MineAgainView(discord.ui.View):
         self.mine_again_btn.callback = self.mine_again_button
         self.add_item(self.mine_again_btn)
         self.active_mining_sessions = active_mining_sessions
+        self.cooldowns = cooldowns
+        self.failures = failures
+        self.captcha_active = False
 
     async def on_timeout(self):
         self.active_mining_sessions.pop(self.user_id, None)
@@ -170,9 +175,7 @@ class MineAgainView(discord.ui.View):
         if hasattr(self, "message_id") and self.channel:
             try:
                 message = await self.channel.fetch_message(self.message_id)
-                await message.edit(
-                    content="Button timed out / Cooldown Finished", view=self
-                )
+                await message.edit(content="Button timed out", view=self)
             except discord.HTTPException:
                 self.bot.logger.error("Mining message expired or missing")
 
@@ -185,12 +188,16 @@ class MineAgainView(discord.ui.View):
 
         await interaction.response.defer()
 
+        if self.captcha_active:
+            return
+
         self.clicks += 1
 
         if self.clicks >= self.click_threshold:
             if self.colors_added:
                 return
             self.colors_added = True
+            self.captcha_active = True
             self.mine_again_btn.disabled = True
             self.correct_color = random.choice(["Red", "Green", "Blue"])
             self.add_color_buttons()
@@ -213,6 +220,7 @@ class MineAgainView(discord.ui.View):
             xp_gained_base,
             buff_bonus_xp,
             buff_expiry_str,
+            leveled_up,
         ) = await perform_mining(self.bot, self.user_id)
 
         embed = create_mining_embed(
@@ -231,16 +239,13 @@ class MineAgainView(discord.ui.View):
             buff_bonus_xp,
             buff_expiry_str,
         )
+        if leveled_up:
+            await interaction.followup.send(
+                f"🎉 {interaction.user.mention} leveled up to **Mining Level {current_level}**!",
+            )
         await interaction.edit_original_response(embed=embed, view=self)
 
     def add_color_buttons(self):
-        # for item in self.children[:]:
-        #     if isinstance(item, discord.ui.Button) and item.label in {
-        #         "Red",
-        #         "Green",
-        #         "Blue",
-        #     }:
-        #         self.remove_item(item)
         for color, style in [
             ("Green", discord.ButtonStyle.green),
             ("Red", discord.ButtonStyle.red),
@@ -266,6 +271,7 @@ class MineAgainView(discord.ui.View):
                 if isinstance(item, discord.ui.Button) and item.label != "Mine Again":
                     self.remove_item(item)
             self.colors_added = False
+            self.captcha_active = False
             self.mine_again_btn.disabled = False
             self.clicks = 0
             self.click_threshold = 200
@@ -280,12 +286,20 @@ class MineAgainView(discord.ui.View):
             await interaction.response.edit_message(
                 content="❌ Wrong color! Cooldown Started.", view=self
             )
+            self.captcha_active = False
+            now = time()
+            self.failures[self.user_id] = self.failures.get(self.user_id, 0) + 1
+            penalty = 300 * self.failures[self.user_id]
+            self.cooldowns[self.user_id] = now + penalty
+            self.active_mining_sessions.pop(self.user_id, None)
 
 
 class Mining(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.active_mining_sessions = {}
+        self.cooldowns = {}
+        self.failures = {}
 
     @app_commands.command(name="mine", description="Mine ores for money")
     async def mine(self, interaction: discord.Interaction):
@@ -298,7 +312,15 @@ class Mining(commands.Cog):
             previous_message = self.active_mining_sessions[interaction.user.id]
             link = previous_message.jump_url
             await interaction.response.send_message(
-                f"You are already mining or on a cooldown. [Jump to your previous mining message.]({link})",
+                f"You are already mining. [Jump to your previous mining message.]({link})",
+            )
+            return
+        now = time()
+        user_id = interaction.user.id
+        if user_id in self.cooldowns and now < self.cooldowns[user_id]:
+            remaining = int(self.cooldowns[user_id] - now)
+            await interaction.response.send_message(
+                f"⏳ You're on cooldown for another {remaining} seconds.",
             )
             return
 
@@ -319,6 +341,7 @@ class Mining(commands.Cog):
             xp_gained_base,
             buff_bonus_xp,
             buff_expiry_str,
+            leveled_up,
         ) = await perform_mining(self.bot, interaction.user.id)
 
         # Create the embed with pickaxe_name
@@ -338,7 +361,18 @@ class Mining(commands.Cog):
             buff_bonus_xp,
             buff_expiry_str,
         )
-        view = MineAgainView(self.bot, interaction.user.id, self.active_mining_sessions)
+        if leveled_up:
+            await interaction.followup.send(
+                f"🎉 {interaction.user.mention} leveled up to **Mining Level {current_level}**!",
+                ephemeral=False,
+            )
+        view = MineAgainView(
+            self.bot,
+            interaction.user.id,
+            self.active_mining_sessions,
+            self.cooldowns,
+            self.failures,
+        )
         view.message = await interaction.followup.send(embed=embed, view=view)
         self.active_mining_sessions[interaction.user.id] = view.message
         view.message_id = view.message.id

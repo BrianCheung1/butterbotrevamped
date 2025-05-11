@@ -1,5 +1,5 @@
 import random
-import time
+from time import time
 
 import discord
 from constants.fishing_config import FISHING_RARITY_TIERS
@@ -10,7 +10,7 @@ from utils.formatting import format_number
 
 
 async def perform_fishing(bot, user_id):
-    start_time = time.time()
+    start_time = time()
 
     # Weighted random selection of rarity
     rarities, weights = zip(
@@ -46,7 +46,7 @@ async def perform_fishing(bot, user_id):
     fishingrod_name = equipped_tools.get("fishingrod")
 
     # Update stats
-    current_xp, next_level_xp, current_level = (
+    current_xp, next_level_xp, current_level, leveled_up = (
         await bot.database.work_db.set_work_stats(user_id, value, xp_gained, "fishing")
     )
 
@@ -63,8 +63,8 @@ async def perform_fishing(bot, user_id):
     # await bot.database.user_db.set_balance(user_id, new_balance)
     await bot.database.user_db.increment_balance(user_id, total_value)
 
-    db_operation_time = time.time() - start_time
-    # bot.logger.info(f"Database operation took {db_operation_time:.4f} seconds")
+    db_operation_time = time() - start_time
+    bot.logger.info(f"Database operation took {db_operation_time:.4f} seconds")
 
     return (
         fished_item,
@@ -80,6 +80,7 @@ async def perform_fishing(bot, user_id):
         xp_gained_base,
         buff_bonus_xp,
         buff_expiry_str,
+        leveled_up,
     )
 
 
@@ -169,7 +170,8 @@ def create_fishing_embed(
 
 
 class FishAgainView(discord.ui.View):
-    def __init__(self, bot, user_id, active_fishing_sessions):
+
+    def __init__(self, bot, user_id, active_fishing_sessions, cooldowns, failures):
         super().__init__(timeout=1800)
         self.bot = bot
         self.user_id = user_id
@@ -183,6 +185,9 @@ class FishAgainView(discord.ui.View):
         self.fish_again_btn.callback = self.fish_again_button
         self.add_item(self.fish_again_btn)
         self.active_fishing_sessions = active_fishing_sessions
+        self.cooldowns = cooldowns
+        self.failures = failures
+        self.captcha_active = False
 
     async def on_timeout(self):
         self.active_fishing_sessions.pop(self.user_id, None)
@@ -192,9 +197,7 @@ class FishAgainView(discord.ui.View):
         if hasattr(self, "message_id") and self.channel:
             try:
                 message = await self.channel.fetch_message(self.message_id)
-                await message.edit(
-                    content="Button timed out / Cooldown Finished", view=self
-                )
+                await message.edit(content="Button timed out", view=self)
             except discord.HTTPException:
                 self.bot.logger.error("Fishing message expired or missing")
 
@@ -207,12 +210,16 @@ class FishAgainView(discord.ui.View):
 
         await interaction.response.defer()
 
+        if self.captcha_active:
+            return
+
         self.clicks += 1
 
         if self.clicks >= self.click_threshold:
             if self.colors_added:
                 return
             self.colors_added = True
+            self.captcha_active = True
             self.fish_again_btn.disabled = True
             self.correct_color = random.choice(["Red", "Green", "Blue"])
             self.add_color_buttons()
@@ -235,6 +242,7 @@ class FishAgainView(discord.ui.View):
             xp_gained_base,
             buff_bonus_xp,
             buff_expiry_str,
+            leveled_up,
         ) = await perform_fishing(self.bot, self.user_id)
 
         embed = create_fishing_embed(
@@ -253,17 +261,13 @@ class FishAgainView(discord.ui.View):
             buff_bonus_xp,
             buff_expiry_str,
         )
-
+        if leveled_up:
+            await interaction.followup.send(
+                f"🎉 {interaction.user.mention} leveled up to **Fishing Level {current_level}**!",
+            )
         await interaction.edit_original_response(embed=embed, view=self)
 
     def add_color_buttons(self):
-        # for item in self.children[:]:
-        # if isinstance(item, discord.ui.Button) and item.label in {
-        #     "Red",
-        #     "Green",
-        #     "Blue",
-        # }:
-        #     self.remove_item(item)
         for color, style in [
             ("Green", discord.ButtonStyle.green),
             ("Red", discord.ButtonStyle.red),
@@ -289,6 +293,7 @@ class FishAgainView(discord.ui.View):
                 if isinstance(item, discord.ui.Button) and item.label != "Fish Again":
                     self.remove_item(item)
             self.colors_added = False
+            self.captcha_active = False
             self.fish_again_btn.disabled = False
             self.clicks = 0
             self.click_threshold = 200
@@ -302,12 +307,20 @@ class FishAgainView(discord.ui.View):
             await interaction.response.edit_message(
                 content="❌ Wrong color! Cooldown Started.", view=self
             )
+            self.captcha_active = False
+            now = time()
+            self.failures[self.user_id] = self.failures.get(self.user_id, 0) + 1
+            penalty = 300 * self.failures[self.user_id]
+            self.cooldowns[self.user_id] = now + penalty
+            self.active_mining_sessions.pop(self.user_id, None)
 
 
 class Fishing(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.active_fishing_sessions = {}
+        self.cooldowns = {}
+        self.failures = {}
 
     @app_commands.command(name="fish", description="Fish for money")
     async def fish(self, interaction: discord.Interaction):
@@ -315,10 +328,17 @@ class Fishing(commands.Cog):
             previous_message = self.active_fishing_sessions[interaction.user.id]
             link = previous_message.jump_url
             await interaction.response.send_message(
-                f"You are already fishing or on a cooldown. [Jump to your previous fishing message.]({link})",
+                f"You are already fishing. [Jump to your previous fishing message.]({link})",
             )
             return
-
+        now = time()
+        user_id = interaction.user.id
+        if user_id in self.cooldowns and now < self.cooldowns[user_id]:
+            remaining = int(self.cooldowns[user_id] - now)
+            await interaction.response.send_message(
+                f"⏳ You're on cooldown for another {remaining} seconds.",
+            )
+            return
         await interaction.response.defer()
         (
             fished_item,
@@ -334,6 +354,7 @@ class Fishing(commands.Cog):
             xp_gained_base,
             buff_bonus_xp,
             buff_expiry_str,
+            leveled_up,
         ) = await perform_fishing(self.bot, interaction.user.id)
 
         embed = create_fishing_embed(
@@ -352,8 +373,17 @@ class Fishing(commands.Cog):
             buff_bonus_xp,
             buff_expiry_str,
         )
+        if leveled_up:
+            await interaction.followup.send(
+                f"🎉 {interaction.user.mention} leveled up to **Fishing Level {current_level}**!",
+                ephemeral=False,
+            )
         view = FishAgainView(
-            self.bot, interaction.user.id, self.active_fishing_sessions
+            self.bot,
+            interaction.user.id,
+            self.active_fishing_sessions,
+            self.cooldowns,
+            self.failures,
         )
         view.message = await interaction.followup.send(embed=embed, view=view)
         self.active_fishing_sessions[interaction.user.id] = view.message

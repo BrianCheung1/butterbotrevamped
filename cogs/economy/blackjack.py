@@ -88,12 +88,19 @@ def is_soft_17(hand):
 
 
 def create_result_embed(
-    player_hand, dealer_hand, outcome, prev_balance, result_text, stats, display_bet
+    color,
+    player_hand,
+    dealer_hand,
+    outcome,
+    prev_balance,
+    result_text,
+    stats,
+    display_bet,
 ):
     embed = discord.Embed(
         title="Blackjack Results",
         description=f"Bet Amount: ${format_number(display_bet)}",
-        color=discord.Color.green(),
+        color=color,
     )
     embed.add_field(
         name=f"Your final hand ({calculate_hand_value(player_hand)})",
@@ -302,22 +309,27 @@ class BlackjackView(discord.ui.View):
             result_text = "You busted! 💥 Dealer wins"
             won, lost = False, True
             outcome = -self.amount
+            color = discord.Color.red()
         elif dealer_value > 21 or player_value > dealer_value:
             result_text = "🎉You win"
             won, lost = True, False
             outcome = self.amount
+            color = discord.Color.green()
         elif player_value < dealer_value:
             result_text = "😞 Dealer wins"
             won, lost = False, True
             outcome = -self.amount
+            color = discord.Color.red()
         else:
             result_text = "🤝It's a tie"
             won, lost = False, False
             outcome = 0
+            color = discord.Color.gold()
 
         update_stats(self.stats, won, lost)
         win_value = True if won else False if lost else None
         embed = create_result_embed(
+            color,
             self.player_hand,
             self.dealer_hand,
             outcome,
@@ -356,16 +368,18 @@ async def perform_blackjack(bot, interaction, user_id, amount, action, balance):
             won, lost = False, False
             result = "Push! Both you and the dealer have blackjack. 🤝"
             outcome = 0
+            color = discord.Color.gold()
         else:
             result = "Blackjack! You win with a natural 21! 🎉 You win"
             outcome = int(amount * 1.5)
             won, lost = True, False
+            color = discord.Color.green()
         update_stats(stats, won, lost)
         win_value = True if won else False if lost else None
         embed = discord.Embed(
             title="Blackjack",
             description=f"Bet Amount ${format_number(amount)}",
-            color=discord.Color.gold(),
+            color=color,
         )
         embed.add_field(
             name="Your hand (Blackjack)", value=format_hand(player_hand), inline=False

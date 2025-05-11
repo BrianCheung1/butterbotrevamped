@@ -34,6 +34,7 @@ class WorkDatabaseManager:
     async def set_work_stats(self, user_id: int, value: int, xp: int, work_type: str):
         """
         Updates the user's work stats, XP, and handles level-ups based on the work type (mining, fishing, etc.).
+        Returns: new_xp, new_next_level_xp, current_level, leveled_up (bool)
         """
         await self.db_manager._create_user_if_not_exists(user_id)
 
@@ -47,29 +48,28 @@ class WorkDatabaseManager:
 
         updates = {}
 
-        # Dynamically get field names based on work_type
         total_field = f"total_{work_type}"
         value_field = f"total_{work_type}_value"
         xp_field = f"{work_type}_xp"
         next_level_xp_field = f"{work_type}_next_level_xp"
-        next_level_field = f"{work_type}_level"
+        level_field = f"{work_type}_level"
 
-        # Calculate updated values
         updates[total_field] = work_stats[total_field] + 1
         updates[value_field] = work_stats[value_field] + value
         new_xp = work_stats[xp_field] + xp
         updates[xp_field] = new_xp
+        current_level = work_stats[level_field]
         new_next_level_xp = work_stats[next_level_xp_field]
 
-        # Level-up check
-        if new_xp >= work_stats[next_level_xp_field]:
-            new_next_level_xp = int(
-                work_stats[next_level_xp_field] * 1.25
-            )  # Level scaling
+        # Track level-up
+        leveled_up = False
+        if new_xp >= new_next_level_xp:
+            leveled_up = True
+            updates[level_field] = current_level + 1
+            current_level += 1
+            new_next_level_xp = int(new_next_level_xp * 1.25)
             updates[next_level_xp_field] = new_next_level_xp
-            updates[next_level_field] = work_stats[next_level_field] + 1
 
-        # Prepare the SQL update
         set_clause = ", ".join([f"{field} = ?" for field in updates.keys()])
         params = list(updates.values()) + [user_id]
 
@@ -81,13 +81,14 @@ class WorkDatabaseManager:
             """,
             params,
         )
-
         await self.connection.commit()
-        current_level = updates.get(next_level_field, work_stats[next_level_field])
-        return new_xp, new_next_level_xp, current_level
+
+        return new_xp, new_next_level_xp, current_level, leveled_up
 
     async def migrate_work_levels_to_25_percent_growth(self):
-        async with self.connection.execute("SELECT user_id, mining_xp, fishing_xp FROM user_work_stats") as cursor:
+        async with self.connection.execute(
+            "SELECT user_id, mining_xp, fishing_xp FROM user_work_stats"
+        ) as cursor:
             users = await cursor.fetchall()
 
         for user in users:

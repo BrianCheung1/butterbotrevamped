@@ -1,8 +1,8 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.formatting import format_number
 from utils.equips import format_tool_display_name, get_tool_bonus
+from utils.formatting import format_number
 
 
 class WorkStats(commands.Cog):
