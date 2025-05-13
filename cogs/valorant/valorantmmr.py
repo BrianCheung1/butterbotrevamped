@@ -156,11 +156,20 @@ class ValorantMMRHistory(commands.Cog):
         earlier_match = next(
             (m for m in history if convert_to_datetime(m["date"]) < time_limit), None
         )
-
         if not recent_matches:
-            return await interaction.followup.send(
-                f"No matches found in the last {time} hours."
+            current = mmr_data["data"].get("current", {})
+            current_rank = current.get("tier", {}).get("name", "Unknown")
+            current_rr = current.get("rr", 0)
+
+            embed = discord.Embed(
+                title=f"Current Rank and RR for {name}#{tag}",
+                description="No recent matches found in the selected time range.",
+                color=discord.Color.blue(),
             )
+            embed.add_field(name="Current Rank", value=current_rank, inline=True)
+            embed.add_field(name="Current RR", value=str(current_rr), inline=True)
+
+            return await interaction.followup.send(embed=embed)
 
         starting_elo = (
             earlier_match["elo"] if earlier_match else recent_matches[-1]["elo"]

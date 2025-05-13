@@ -1,3 +1,4 @@
+import asyncio
 import random
 from time import time
 
@@ -5,72 +6,72 @@ import discord
 from constants.mining_config import MINING_RARITY_TIERS
 from discord import app_commands
 from discord.ext import commands
+from utils.buffs import apply_buff
 from utils.equips import format_tool_display_name, get_tool_bonus
 from utils.formatting import format_number
+from utils.work import calculate_work_bonuses
 
 
 async def perform_mining(bot, user_id):
-    # Weighted Random Selection of Rarity
-    rarities, weights = zip(
-        *[(rarity, info["weight"]) for rarity, info in MINING_RARITY_TIERS.items()]
-    )
-    selected_rarity = random.choices(rarities, weights, k=1)[0]
+    # 1. Randomly determine rarity
+    rarities, weights = zip(*[(r, d["weight"]) for r, d in MINING_RARITY_TIERS.items()])
+    selected_rarity = random.choices(rarities, weights)[0]
     rarity_info = MINING_RARITY_TIERS[selected_rarity]
     mined_item = random.choice(rarity_info["items"])
-    value = random.randint(*rarity_info["value_range"])
-    xp_gained_base = random.randint(5, 10)
+    base_value = random.randint(*rarity_info["value_range"])
+    base_xp = random.randint(5, 10)
 
-    # Get buffs
+    # 2. Buffs
     buffs = await bot.database.buffs_db.get_buffs(user_id)
-    buff = buffs.get("exp")
-    buff_bonus_xp = 0
+    xp_gained = int(apply_buff(base_xp, buffs, "exp"))
+    buff_bonus_xp = xp_gained - base_xp
+
+    # 3. Buff expiry display
     buff_expiry_str = None
+    exp_buff = buffs.get("exp")
+    if exp_buff:
+        if "expires_at" in exp_buff:
+            buff_expiry_str = f"<t:{int(exp_buff['expires_at'].timestamp())}:R>"
+        elif "uses_left" in exp_buff:
+            buff_expiry_str = f"{exp_buff['uses_left']} uses left"
 
-    if buff:
-        multiplier = buff["multiplier"]
-        xp_gained = int(xp_gained_base * multiplier)
-        buff_bonus_xp = xp_gained - xp_gained_base
+    # 4. Rare chance tool break
+    if random.random() < 0.0002:
+        await bot.database.inventory_db.set_equipped_tool(user_id, "pickaxe", None)
 
-        if "expires_at" in buff:
-            expires_at_ts = int(buff["expires_at"].timestamp())
-            buff_expiry_str = f"<t:{expires_at_ts}:R>"
-        elif "uses_left" in buff:
-            buff_expiry_str = f"{buff['uses_left']} uses left"
-    else:
-        xp_gained = xp_gained_base
+    # 5. Tool & stats
+    equipped = await bot.database.inventory_db.get_equipped_tools(user_id)
+    pickaxe_name = equipped.get("pickaxe")
+    tool_bonus_pct = get_tool_bonus(pickaxe_name) if pickaxe_name else 0.0
 
-    # Get equipped tools
-    equipped_tools = await bot.database.inventory_db.get_equipped_tools(user_id)
-    pickaxe_name = equipped_tools.get("pickaxe")
-
-    current_xp, next_level_xp, current_level, leveled_up = (
-        await bot.database.work_db.set_work_stats(user_id, value, xp_gained, "mining")
+    # 6. XP + value storage
+    current_xp, next_level_xp, level, leveled_up = (
+        await bot.database.work_db.set_work_stats(
+            user_id, base_value, xp_gained, "mining"
+        )
     )
 
-    # Calculate bonuses
-    bonus_pct = get_tool_bonus(pickaxe_name) if pickaxe_name else 0.0
-    tool_bonus = int(value * bonus_pct)
-    level_bonus = int((current_level * 0.05) * value)
+    # 7. Bonuses
+    tool_bonus, level_bonus = calculate_work_bonuses(base_value, level, tool_bonus_pct)
+    total_value = base_value + tool_bonus + level_bonus
 
-    # Final value to credit
-    total_value = value + level_bonus + tool_bonus
-    balance = await bot.database.user_db.get_balance(user_id)
-    prev_balance = balance
-    new_balance = balance + total_value
+    # 8. Balance update
+    prev_balance = await bot.database.user_db.get_balance(user_id)
+    new_balance = prev_balance + total_value
     await bot.database.user_db.increment_balance(user_id, total_value)
 
     return (
         mined_item,
-        value,
+        base_value,
         level_bonus,
         tool_bonus,
         current_xp,
-        current_level,
+        level,
         next_level_xp,
         prev_balance,
         new_balance,
         pickaxe_name,
-        xp_gained_base,
+        base_xp,
         buff_bonus_xp,
         buff_expiry_str,
         leveled_up,
@@ -150,7 +151,7 @@ def create_mining_embed(
 
 class MineAgainView(discord.ui.View):
     def __init__(self, bot, user_id, active_mining_sessions, cooldowns, failures):
-        super().__init__(timeout=None)
+        super().__init__(timeout=300)
         self.bot = bot
         self.user_id = user_id
         self.clicks = 0
@@ -166,6 +167,7 @@ class MineAgainView(discord.ui.View):
         self.cooldowns = cooldowns
         self.failures = failures
         self.captcha_active = False
+        self.lock = asyncio.Lock()
 
     async def on_timeout(self):
         self.active_mining_sessions.pop(self.user_id, None)
@@ -180,70 +182,73 @@ class MineAgainView(discord.ui.View):
                 self.bot.logger.error("Mining message expired or missing")
 
     async def mine_again_button(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "You cannot use this button.", ephemeral=True
-            )
-            return
-
-        await interaction.response.defer()
-
-        if self.captcha_active:
-            return
-
-        self.clicks += 1
-
-        if self.clicks >= self.click_threshold:
-            if self.colors_added:
+        async with self.lock:
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message(
+                    "You cannot use this button.", ephemeral=True
+                )
                 return
-            self.colors_added = True
-            self.captcha_active = True
-            self.mine_again_btn.disabled = True
-            self.correct_color = random.choice(["Red", "Green", "Blue"])
-            self.add_color_buttons()
-            await interaction.edit_original_response(
-                content=f"Pick **{self.correct_color}** to mine again!", view=self
-            )
-            return
 
-        (
-            mined_item,
-            value,
-            level_bonus,
-            tool_bonus,
-            current_xp,
-            current_level,
-            next_level_xp,
-            prev_balance,
-            new_balance,
-            pickaxe_name,
-            xp_gained_base,
-            buff_bonus_xp,
-            buff_expiry_str,
-            leveled_up,
-        ) = await perform_mining(self.bot, self.user_id)
+            await interaction.response.defer()
 
-        embed = create_mining_embed(
-            interaction.user,
-            mined_item,
-            value,
-            level_bonus,
-            tool_bonus,
-            current_xp,
-            current_level,
-            next_level_xp,
-            prev_balance,
-            new_balance,
-            pickaxe_name,
-            xp_gained_base,
-            buff_bonus_xp,
-            buff_expiry_str,
-        )
-        if leveled_up:
-            await interaction.followup.send(
-                f"🎉 {interaction.user.mention} leveled up to **Mining Level {current_level}**!",
+            if self.captcha_active:
+                self.bot.logger.error("Captcha Active")
+                return
+
+            self.clicks += 1
+
+            if self.clicks >= self.click_threshold:
+                if self.colors_added:
+                    self.bot.logger.error("Colors Already Added")
+                    return
+                self.correct_color = random.choice(["Red", "Green", "Blue"])
+                self.add_color_buttons()
+                self.mine_again_btn.disabled = True
+                self.captcha_active = True
+                self.colors_added = True
+                await interaction.edit_original_response(
+                    content=f"Pick **{self.correct_color}** to mine again!", view=self
+                )
+                return
+
+            (
+                mined_item,
+                value,
+                level_bonus,
+                tool_bonus,
+                current_xp,
+                current_level,
+                next_level_xp,
+                prev_balance,
+                new_balance,
+                pickaxe_name,
+                xp_gained_base,
+                buff_bonus_xp,
+                buff_expiry_str,
+                leveled_up,
+            ) = await perform_mining(self.bot, self.user_id)
+
+            embed = create_mining_embed(
+                interaction.user,
+                mined_item,
+                value,
+                level_bonus,
+                tool_bonus,
+                current_xp,
+                current_level,
+                next_level_xp,
+                prev_balance,
+                new_balance,
+                pickaxe_name,
+                xp_gained_base,
+                buff_bonus_xp,
+                buff_expiry_str,
             )
-        await interaction.edit_original_response(embed=embed, view=self)
+            if leveled_up:
+                await interaction.followup.send(
+                    f"🎉 {interaction.user.mention} leveled up to **Mining Level {current_level}**!",
+                )
+            await interaction.edit_original_response(embed=embed, view=self)
 
     def add_color_buttons(self):
         for color, style in [
@@ -265,7 +270,7 @@ class MineAgainView(discord.ui.View):
                 "You cannot use this button.", ephemeral=True
             )
             return
-
+        await interaction.response.defer()
         if chosen_color == self.correct_color:
             for item in self.children:
                 if isinstance(item, discord.ui.Button) and item.label != "Mine Again":
@@ -275,7 +280,7 @@ class MineAgainView(discord.ui.View):
             self.mine_again_btn.disabled = False
             self.clicks = 0
             self.click_threshold = 200
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content="✅ Correct! You can mine again.", view=self
             )
         else:
@@ -283,7 +288,7 @@ class MineAgainView(discord.ui.View):
                 if isinstance(item, discord.ui.Button):
                     item.disabled = True
 
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content="❌ Wrong color! Cooldown Started.", view=self
             )
             self.captcha_active = False

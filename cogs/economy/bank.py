@@ -1,14 +1,91 @@
+import asyncio
+from datetime import datetime, timedelta
 from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from utils.formatting import format_number
 
 
 class Bank(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.hourly_interest_task.start()
+
+    def cog_unload(self):
+        self.hourly_interest_task.cancel()
+
+    async def wait_until_next_hour(self):
+        now = datetime.utcnow()
+        next_hour = (now + timedelta(hours=1)).replace(
+            minute=0, second=0, microsecond=0
+        )
+        wait_seconds = (next_hour - now).total_seconds()
+        return wait_seconds
+
+    @tasks.loop(hours=1)
+    async def hourly_interest_task(self):
+        await self.bot.wait_until_ready()
+
+        user_ids = await self.bot.database.bank_db.get_all_bank_users()
+        interest_rate = 0.001
+        user_count = 0
+
+        for user_id in user_ids:
+            user = await self.bot.fetch_user(user_id)
+            if user is None:
+                self.bot.logger.warning(f"User with ID {user_id} not found.")
+                continue
+
+            bank_stats_raw = await self.bot.database.bank_db.get_user_bank_stats(
+                user_id
+            )
+            bank_stats = dict(bank_stats_raw["bank_stats"])
+            bank_balance = bank_stats["bank_balance"]
+
+            if bank_balance <= 0:
+                continue
+
+            interest = int(bank_balance * interest_rate)
+            if interest == 0:
+                continue
+
+            new_balance = bank_balance + interest
+            await self.bot.database.bank_db.set_bank_balance(user_id, new_balance)
+            user_count += 1
+
+        # 🔽 Send announcement if bank channel is set
+        for guild in self.bot.guilds:
+            channel_id = await self.bot.database.guild_db.get_channel(
+                guild.id, "interest_channel_id"
+            )
+            if channel_id is None:
+                continue
+
+            channel = guild.get_channel(channel_id)
+            if channel is None:
+                continue
+
+            try:
+                await channel.send(
+                    f"💸 Interest has been applied to all active bank accounts! ({user_count} users updated)"
+                )
+            except discord.Forbidden:
+                self.bot.logger.warning(
+                    f"Missing permission to send messages in {channel.name} ({channel.id})"
+                )
+            except discord.HTTPException as e:
+                self.bot.logger.error(f"Failed to send interest message: {e}")
+
+    @hourly_interest_task.before_loop
+    async def before_interest_task(self):
+        wait_seconds = await self.wait_until_next_hour()
+        time_left = str(
+            timedelta(seconds=wait_seconds)
+        )  # Convert to a readable time format
+        self.bot.logger.info(f"Next interest update in {time_left}")
+        await asyncio.sleep(wait_seconds)
 
     def build_bank_embed(
         self, user: discord.User, bank_stats: dict, bank_balance: int
@@ -210,6 +287,26 @@ class Bank(commands.Cog):
             new_wallet=balance + amount_to_withdraw,
         )
         await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="setbankchannel",
+        description="Set the current channel as the bank announcement channel (admin only).",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_bank_channel(
+        self,
+        interaction: discord.Interaction,
+    ):
+        await self.bot.database.guild_db.set_channel(
+            guild_id=interaction.guild.id,
+            channel_type="interest_channel_id",
+            channel_id=interaction.channel.id,
+        )
+
+        await interaction.response.send_message(
+            f"✅ Bank announcement channel has been set to {interaction.channel.mention}.",
+            ephemeral=True,
+        )
 
 
 async def setup(bot):

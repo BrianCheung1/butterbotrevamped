@@ -162,7 +162,6 @@ class MovieSelect(discord.ui.Select):
 
         movie_id = self.values[0]
         movie = await self.fetch_details(movie_id)  # Call fetch_details correctly
-        print(movie_id, movie)
         if not movie:
             await interaction.followup.send("❌ Failed to fetch movie details.")
             return

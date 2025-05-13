@@ -142,11 +142,16 @@ CREATE TABLE IF NOT EXISTS movies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     guild_id TEXT NOT NULL,
     title TEXT NOT NULL,
-    imdb_id TEXT NOT NULL UNIQUE,
+    imdb_id TEXT NOT NULL,
     imdb_link TEXT,
     added_by_id TEXT NOT NULL,
     added_by_name TEXT NOT NULL,
     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     notes TEXT,
     UNIQUE (guild_id, imdb_id)
-)
+);
+
+CREATE TABLE IF NOT EXISTS guild_settings (
+    guild_id INTEGER PRIMARY KEY,
+    interest_channel_id INTEGER
+);

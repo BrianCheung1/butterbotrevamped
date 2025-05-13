@@ -12,6 +12,7 @@ from .steal_db import StealDatabaseManager
 from .user_db import UserDatabaseManager
 from .work_db import WorkDatabaseManager
 from .movies_db import MoviesDatabaseManager
+from .guild_db import GuildSettingsDatabaseManager
 
 logger = setup_logger("DatabaseManagerBase")
 
@@ -36,6 +37,9 @@ class DatabaseManager:
 
         # Movies Database
         self.movies_db = MoviesDatabaseManager(connection)
+
+        # Guild Database
+        self.guild_db = GuildSettingsDatabaseManager(connection)
 
     async def _create_user_if_not_exists(self, user_id: int) -> None:
         async with self.connection.execute(

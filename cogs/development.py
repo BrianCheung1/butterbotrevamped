@@ -384,6 +384,12 @@ class Development(commands.Cog):
         await self.bot.database.work_db.migrate_work_levels_to_25_percent_growth()
         await interaction.followup.send("✅ Migration complete!", ephemeral=True)
 
+    @app_commands.command(name="ping", description="Get the bot's latency.")
+    async def ping(self, interaction: discord.Interaction):
+        # Fetching bot's latency
+        latency = self.bot.latency * 1000  # convert from seconds to milliseconds
+        await interaction.response.send_message(f"Pong! 🏓 Latency: {latency:.2f}ms")
+
     @commands.Cog.listener()
     async def on_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError

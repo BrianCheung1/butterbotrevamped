@@ -198,12 +198,16 @@ def generate_shop_pages(user_id, shop_data, user_levels):
         pages.append(embed)
 
     for buff_key, buff_data in shop_data.get("buffs", {}).items():
-        embed = discord.Embed(title="Buffs", color=discord.Color.purple())
-        embed.add_field(
-            name=buff_data["name"],
-            value=f"{buff_data['description']}\nCost: {format_number(buff_data['price'])}\nDuration: {buff_data['duration']} minutes\nMultiplier: {buff_data['multiplier']}x",
-            inline=False,
+        embed = discord.Embed(
+            title=f"{buff_key.capitalzie()} Buffs", color=discord.Color.purple()
         )
+        for rarity, data in buff_data.items():
+            cost = data["price"]
+            embed.add_field(
+                name=data["name"],
+                value=f"{data['description']}\nCost: ${format_number(cost)}",
+                inline=False,
+            )
         pages.append(embed)
     return pages
 

@@ -5,79 +5,80 @@ import discord
 from constants.fishing_config import FISHING_RARITY_TIERS
 from discord import app_commands
 from discord.ext import commands
+from utils.buffs import apply_buff
 from utils.equips import format_tool_display_name, get_tool_bonus
 from utils.formatting import format_number
+from utils.work import calculate_work_bonuses
 
 
 async def perform_fishing(bot, user_id):
     start_time = time()
 
-    # Weighted random selection of rarity
+    # 1. Weighted rarity selection
     rarities, weights = zip(
-        *[(rarity, info["weight"]) for rarity, info in FISHING_RARITY_TIERS.items()]
+        *[(r, d["weight"]) for r, d in FISHING_RARITY_TIERS.items()]
     )
-    selected_rarity = random.choices(rarities, weights, k=1)[0]
+    selected_rarity = random.choices(rarities, weights)[0]
     rarity_info = FISHING_RARITY_TIERS[selected_rarity]
     fished_item = random.choice(rarity_info["items"])
-    value = random.randint(*rarity_info["value_range"])
-    xp_gained_base = random.randint(5, 10)
+    base_value = random.randint(*rarity_info["value_range"])
+    base_xp = random.randint(5, 10)
 
-    # Get buffs
+    # 2. Buffs
     buffs = await bot.database.buffs_db.get_buffs(user_id)
-    buff = buffs.get("exp")
-    buff_bonus_xp = 0
+    xp_gained = int(apply_buff(base_xp, buffs, "exp"))
+    buff_bonus_xp = xp_gained - base_xp
+
+    # 3. Buff expiry display
     buff_expiry_str = None
+    exp_buff = buffs.get("exp")
+    if exp_buff:
+        if "expires_at" in exp_buff:
+            buff_expiry_str = f"<t:{int(exp_buff['expires_at'].timestamp())}:R>"
+        elif "uses_left" in exp_buff:
+            buff_expiry_str = f"{exp_buff['uses_left']} uses left"
 
-    if buff:
-        multiplier = buff["multiplier"]
-        xp_gained = int(xp_gained_base * multiplier)
-        buff_bonus_xp = xp_gained - xp_gained_base
+    # 4. Rare chance to break fishing rod
+    if random.random() < 0.0002:
+        await bot.database.inventory_db.set_equipped_tool(user_id, "fishingrod", None)
 
-        if "expires_at" in buff:
-            expires_at_ts = int(buff["expires_at"].timestamp())
-            buff_expiry_str = f"<t:{expires_at_ts}:R>"
-        elif "uses_left" in buff:
-            buff_expiry_str = f"{buff['uses_left']} uses left"
-    else:
-        xp_gained = xp_gained_base
+    # 5. Tool bonus
+    equipped = await bot.database.inventory_db.get_equipped_tools(user_id)
+    fishingrod_name = equipped.get("fishingrod")
+    tool_bonus_pct = get_tool_bonus(fishingrod_name) if fishingrod_name else 0.0
 
-    # Get equipped tools
-    equipped_tools = await bot.database.inventory_db.get_equipped_tools(user_id)
-    fishingrod_name = equipped_tools.get("fishingrod")
-
-    # Update stats
-    current_xp, next_level_xp, current_level, leveled_up = (
-        await bot.database.work_db.set_work_stats(user_id, value, xp_gained, "fishing")
+    # 6. XP + value stats
+    current_xp, next_level_xp, level, leveled_up = (
+        await bot.database.work_db.set_work_stats(
+            user_id, base_value, xp_gained, "fishing"
+        )
     )
 
-    # Calculate bonuses
-    bonus_pct = get_tool_bonus(fishingrod_name) if fishingrod_name else 0.0
-    tool_bonus = int(value * bonus_pct)
-    level_bonus = int((current_level * 0.05) * value)
+    # 7. Bonuses
+    tool_bonus, level_bonus = calculate_work_bonuses(base_value, level, tool_bonus_pct)
+    total_value = base_value + tool_bonus + level_bonus
 
-    # Final value to credit
-    total_value = value + level_bonus + tool_bonus
-    balance = await bot.database.user_db.get_balance(user_id)
-    prev_balance = balance
-    new_balance = balance + total_value
-    # await bot.database.user_db.set_balance(user_id, new_balance)
+    # 8. Balance update
+    prev_balance = await bot.database.user_db.get_balance(user_id)
+    new_balance = prev_balance + total_value
     await bot.database.user_db.increment_balance(user_id, total_value)
 
+    # Optional: log performance
     db_operation_time = time() - start_time
-    bot.logger.info(f"Database operation took {db_operation_time:.4f} seconds")
+    # bot.logger.info(f"Database operation took {db_operation_time:.4f} seconds")
 
     return (
         fished_item,
-        value,
+        base_value,
         level_bonus,
         tool_bonus,
         current_xp,
-        current_level,
+        level,
         next_level_xp,
         prev_balance,
         new_balance,
         fishingrod_name,
-        xp_gained_base,
+        base_xp,
         buff_bonus_xp,
         buff_expiry_str,
         leveled_up,
@@ -172,7 +173,7 @@ def create_fishing_embed(
 class FishAgainView(discord.ui.View):
 
     def __init__(self, bot, user_id, active_fishing_sessions, cooldowns, failures):
-        super().__init__(timeout=1800)
+        super().__init__(timeout=300)
         self.bot = bot
         self.user_id = user_id
         self.clicks = 0
@@ -218,11 +219,11 @@ class FishAgainView(discord.ui.View):
         if self.clicks >= self.click_threshold:
             if self.colors_added:
                 return
-            self.colors_added = True
-            self.captcha_active = True
-            self.fish_again_btn.disabled = True
             self.correct_color = random.choice(["Red", "Green", "Blue"])
             self.add_color_buttons()
+            self.fish_again_btn.disabled = True
+            self.captcha_active = True
+            self.colors_added = True
             await interaction.edit_original_response(
                 content=f"Pick **{self.correct_color}** to fish again!", view=self
             )
@@ -287,7 +288,7 @@ class FishAgainView(discord.ui.View):
                 "You cannot use this button.", ephemeral=True
             )
             return
-
+        await interaction.response.defer()
         if chosen_color == self.correct_color:
             for item in self.children[:]:
                 if isinstance(item, discord.ui.Button) and item.label != "Fish Again":
@@ -297,7 +298,7 @@ class FishAgainView(discord.ui.View):
             self.fish_again_btn.disabled = False
             self.clicks = 0
             self.click_threshold = 200
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content="✅ Correct! You can fish again.", view=self
             )
         else:

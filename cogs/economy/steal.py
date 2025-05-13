@@ -6,6 +6,7 @@ import discord
 from constants.steal_config import StealEventType
 from discord import app_commands
 from discord.ext import commands
+from utils.buffs import apply_buff
 from utils.cooldown import get_cooldown_response
 from utils.formatting import format_number
 
@@ -91,10 +92,20 @@ class Steal(commands.Cog):
                 return
         wealth_factor = min(target_balance / 500_000, 1)
         more_wealth_factor = min(target_balance / 10_000_000, 1)
-        success = (
-            random.random()
-            < STEAL_SUCCESS_RATE + 0.25 * wealth_factor + 0.1 * more_wealth_factor
-        )
+        target_buffs = await self.bot.database.buffs_db.get_buffs(target_id)
+        thief_buffs = await self.bot.database.buffs_db.get_buffs(thief_id)
+        base_rate = STEAL_SUCCESS_RATE + 0.25 * wealth_factor + 0.1 * more_wealth_factor
+
+        # Apply thief buff
+        buffed_rate = apply_buff(base_rate, thief_buffs, "steal_success")
+
+        # Apply target resistance buff
+        final_rate = apply_buff(buffed_rate, target_buffs, "steal_resistance")
+
+        # Determine outcome
+        success = random.random() < final_rate
+        base_rate_pct = round(base_rate * 100, 1)
+        final_rate_pct = round(final_rate * 100, 1)
 
         if success:
             tiers = [
@@ -157,6 +168,9 @@ class Steal(commands.Cog):
                 description=f"You tried to steal from {user.mention} and got caught! You lost **${format_number(lost_amount)}**.",
                 color=discord.Color.red(),
             )
+        embed.set_footer(
+            text=f"Base success rate: {base_rate_pct}%, Final with buffs: {final_rate_pct}%"
+        )
 
         await interaction.response.send_message(embed=embed)
 

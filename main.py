@@ -70,6 +70,7 @@ class MyBot(commands.Bot):
             )
         )
         await self.load_cogs()
+        await self.tree.sync()
 
     async def on_message(self, message: discord.Message) -> None:
         """

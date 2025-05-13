@@ -55,6 +55,7 @@ class BankDatabaseManager:
         # Ensure the user exists before updating their bank balance
         await self.db_manager._create_user_if_not_exists(user_id)
 
+        await self.connection.execute("BEGIN IMMEDIATE")
         # Update the bank balance of the user
         await self.connection.execute(
             """
@@ -95,3 +96,11 @@ class BankDatabaseManager:
         )
 
         await self.connection.commit()
+
+    @db_error_handler
+    async def get_all_bank_users(self) -> list[int]:
+        async with self.connection.execute(
+            "SELECT user_id FROM user_bank_stats WHERE bank_balance > 0"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [row[0] for row in rows]
