@@ -134,8 +134,12 @@ CREATE TABLE IF NOT EXISTS user_buffs (
 CREATE TABLE IF NOT EXISTS players (
     name TEXT NOT NULL,
     tag TEXT NOT NULL,
+    rank TEXT,
+    elo INTEGER,
+    last_updated TIMESTAMP,
     PRIMARY KEY (name, tag)
 );
+
 
 
 CREATE TABLE IF NOT EXISTS movies (

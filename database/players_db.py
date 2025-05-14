@@ -12,39 +12,50 @@ class PlayersDatabaseManager:
         self.connection = connection
 
     @db_error_handler
-    async def save_player(self, name: str, tag: str) -> None:
-        """Store player information in the database."""
+    async def save_player(
+        self, name: str, tag: str, rank: str = None, elo: int = None
+    ) -> None:
+        """Insert or update player information in the database."""
         if not name or not tag:
             raise ValueError("Both name and tag are required.")
 
-        # Ensure name and tag are case-insensitive
-        name = name.lower()
-        tag = tag.lower()
+        name, tag = name.lower(), tag.lower()
 
         try:
-            # Save or update the player information in the database
             await self.connection.execute(
                 """
-                INSERT OR REPLACE INTO players (name, tag)
-                VALUES (?, ?)
+                INSERT INTO players (name, tag, rank, elo, last_updated)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(name, tag) DO UPDATE SET
+                    rank = excluded.rank,
+                    elo = excluded.elo,
+                    last_updated = CURRENT_TIMESTAMP
                 """,
-                (name, tag),
+                (name, tag, rank, elo),
             )
             await self.connection.commit()
         except Exception as e:
-            # Handle any unexpected errors here
             logger.error(f"Error saving player {name}#{tag}: {e}")
-            raise Exception(f"Error saving player: {e}")
+            raise
 
     @db_error_handler
-    async def get_saved_players(self) -> list[tuple[str, str]]:
-        """Retrieve all saved player name/tag pairs."""
+    async def get_all_player_mmr(self) -> list[dict]:
+        """Get all stored player MMR data."""
         try:
             async with self.connection.execute(
-                "SELECT name, tag FROM players"
+                "SELECT name, tag, rank, elo, last_updated FROM players WHERE rank IS NOT NULL AND elo IS NOT NULL"
             ) as cursor:
                 rows = await cursor.fetchall()
-                return [(row[0], row[1]) for row in rows]
+                return [
+                    {
+                        "name": row[0],
+                        "tag": row[1],
+                        "rank": row[2],
+                        "elo": row[3],
+                        "last_updated": row[4],
+                    }
+                    for row in rows
+                ]
         except Exception as e:
-            logger.error(f"Error fetching players from database: {e}")
-        return []
+            logger.error(f"Error loading player MMR from database: {e}")
+            return []

@@ -39,8 +39,8 @@ async def perform_fishing(bot, user_id):
             buff_expiry_str = f"{exp_buff['uses_left']} uses left"
 
     # 4. Rare chance to break fishing rod
-    if random.random() < 0.0002:
-        await bot.database.inventory_db.set_equipped_tool(user_id, "fishingrod", None)
+    # if random.random() < 0.0002:
+    #     await bot.database.inventory_db.set_equipped_tool(user_id, "fishingrod", None)
 
     # 5. Tool bonus
     equipped = await bot.database.inventory_db.get_equipped_tools(user_id)
@@ -189,6 +189,7 @@ class FishAgainView(discord.ui.View):
         self.cooldowns = cooldowns
         self.failures = failures
         self.captcha_active = False
+        self.lock = asyncio.Lock()
 
     async def on_timeout(self):
         self.active_fishing_sessions.pop(self.user_id, None)
@@ -203,70 +204,71 @@ class FishAgainView(discord.ui.View):
                 self.bot.logger.error("Fishing message expired or missing")
 
     async def fish_again_button(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "You cannot use this button.", ephemeral=True
-            )
-            return
-
-        await interaction.response.defer()
-
-        if self.captcha_active:
-            return
-
-        self.clicks += 1
-
-        if self.clicks >= self.click_threshold:
-            if self.colors_added:
+        async with self.lock:
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message(
+                    "You cannot use this button.", ephemeral=True
+                )
                 return
-            self.correct_color = random.choice(["Red", "Green", "Blue"])
-            self.add_color_buttons()
-            self.fish_again_btn.disabled = True
-            self.captcha_active = True
-            self.colors_added = True
-            await interaction.edit_original_response(
-                content=f"Pick **{self.correct_color}** to fish again!", view=self
-            )
-            return
 
-        (
-            fished_item,
-            value,
-            level_bonus,
-            tool_bonus,
-            current_xp,
-            current_level,
-            next_level_xp,
-            prev_balance,
-            new_balance,
-            fishingrod_name,
-            xp_gained_base,
-            buff_bonus_xp,
-            buff_expiry_str,
-            leveled_up,
-        ) = await perform_fishing(self.bot, self.user_id)
+            await interaction.response.defer()
 
-        embed = create_fishing_embed(
-            interaction.user,
-            fished_item,
-            value,
-            level_bonus,
-            tool_bonus,
-            current_xp,
-            current_level,
-            next_level_xp,
-            prev_balance,
-            new_balance,
-            fishingrod_name,
-            xp_gained_base,
-            buff_bonus_xp,
-            buff_expiry_str,
-        )
-        if leveled_up:
-            await interaction.followup.send(
-                f"🎉 {interaction.user.mention} leveled up to **Fishing Level {current_level}**!",
+            if self.captcha_active:
+                return
+
+            self.clicks += 1
+
+            if self.clicks >= self.click_threshold:
+                if self.colors_added:
+                    return
+                self.correct_color = random.choice(["Red", "Green", "Blue"])
+                self.add_color_buttons()
+                self.fish_again_btn.disabled = True
+                self.captcha_active = True
+                self.colors_added = True
+                await interaction.edit_original_response(
+                    content=f"Pick **{self.correct_color}** to fish again!", view=self
+                )
+                return
+
+            (
+                fished_item,
+                value,
+                level_bonus,
+                tool_bonus,
+                current_xp,
+                current_level,
+                next_level_xp,
+                prev_balance,
+                new_balance,
+                fishingrod_name,
+                xp_gained_base,
+                buff_bonus_xp,
+                buff_expiry_str,
+                leveled_up,
+            ) = await perform_fishing(self.bot, self.user_id)
+
+            embed = create_fishing_embed(
+                interaction.user,
+                fished_item,
+                value,
+                level_bonus,
+                tool_bonus,
+                current_xp,
+                current_level,
+                next_level_xp,
+                prev_balance,
+                new_balance,
+                fishingrod_name,
+                xp_gained_base,
+                buff_bonus_xp,
+                buff_expiry_str,
             )
-        await interaction.edit_original_response(embed=embed, view=self)
+            if leveled_up:
+                await interaction.followup.send(
+                    f"🎉 {interaction.user.mention} leveled up to **Fishing Level {current_level}**!",
+                )
+            await interaction.edit_original_response(embed=embed, view=self)
 
     def add_color_buttons(self):
         for color, style in [

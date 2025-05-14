@@ -199,7 +199,7 @@ def generate_shop_pages(user_id, shop_data, user_levels):
 
     for buff_key, buff_data in shop_data.get("buffs", {}).items():
         embed = discord.Embed(
-            title=f"{buff_key.capitalzie()} Buffs", color=discord.Color.purple()
+            title=f"{buff_key.capitalize()} Buffs", color=discord.Color.purple()
         )
         for rarity, data in buff_data.items():
             cost = data["price"]

@@ -8,20 +8,28 @@ SHOP_ITEMS = {
     },
     "buffs": {
         "exp": {
-            "exp_boost": {
-                "name": "Exp Boost 150%",
+            "exp_boost_50": {
+                "name": "Exp Boost 50%",
                 "description": "Increase your experience gained by 50% for 30 mins",
                 "price": 500_000,
                 "buff_type": "exp",
                 "multiplier": 1.5,
                 "duration": 30,
-            }
+            },
+            "exp_boost_100": {
+                "name": "Exp Boost 100%",
+                "description": "Increase your experience gained by 100% for 30 mins",
+                "price": 900_000,
+                "buff_type": "exp",
+                "multiplier": 2.0,
+                "duration": 30,
+            },
         },
         "steal": {
             "lucky_day": {
                 "name": "Lucky Day",
                 "description": "Boosts your steal success chance by 10% for 3 hour",
-                "price": 500_000,
+                "price": 100_000,
                 "buff_type": "steal_success",
                 "multiplier": 1.10,
                 "duration": 180,
@@ -29,7 +37,7 @@ SHOP_ITEMS = {
             "anti_theft_aura": {
                 "name": "Anti-Theft Aura",
                 "description": "Reduces chance of being stolen from by 10% for 3 hour",
-                "price": 500_000,
+                "price": 100_000,
                 "buff_type": "steal_resistance",
                 "multiplier": 0.9,
                 "duration": 180,

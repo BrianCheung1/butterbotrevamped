@@ -11,6 +11,7 @@ from utils.formatting import format_number
 class Bank(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.hours = 0
         self.hourly_interest_task.start()
 
     def cog_unload(self):
@@ -27,6 +28,7 @@ class Bank(commands.Cog):
     @tasks.loop(hours=1)
     async def hourly_interest_task(self):
         await self.bot.wait_until_ready()
+        self.hours += 1
 
         user_ids = await self.bot.database.bank_db.get_all_bank_users()
         interest_rate = 0.001
@@ -56,27 +58,32 @@ class Bank(commands.Cog):
             user_count += 1
 
         # 🔽 Send announcement if bank channel is set
-        for guild in self.bot.guilds:
-            channel_id = await self.bot.database.guild_db.get_channel(
-                guild.id, "interest_channel_id"
+        if self.hours % 6 == 0:
+            for guild in self.bot.guilds:
+                channel_id = await self.bot.database.guild_db.get_channel(
+                    guild.id, "interest_channel_id"
+                )
+                if channel_id is None:
+                    continue
+
+                channel = guild.get_channel(channel_id)
+                if channel is None:
+                    continue
+
+                try:
+                    await channel.send(
+                        f"💸 Interest has been applied to all active bank accounts! ({user_count} users updated)"
+                    )
+                except discord.Forbidden:
+                    self.bot.logger.warning(
+                        f"Missing permission to send messages in {channel.name} ({channel.id})"
+                    )
+                except discord.HTTPException as e:
+                    self.bot.logger.error(f"Failed to send interest message: {e}")
+        else:
+            self.bot.logger.info(
+                f"💸 Interest has been applied to all active bank accounts! ({user_count} users updated)"
             )
-            if channel_id is None:
-                continue
-
-            channel = guild.get_channel(channel_id)
-            if channel is None:
-                continue
-
-            try:
-                await channel.send(
-                    f"💸 Interest has been applied to all active bank accounts! ({user_count} users updated)"
-                )
-            except discord.Forbidden:
-                self.bot.logger.warning(
-                    f"Missing permission to send messages in {channel.name} ({channel.id})"
-                )
-            except discord.HTTPException as e:
-                self.bot.logger.error(f"Failed to send interest message: {e}")
 
     @hourly_interest_task.before_loop
     async def before_interest_task(self):

@@ -36,8 +36,8 @@ async def perform_mining(bot, user_id):
             buff_expiry_str = f"{exp_buff['uses_left']} uses left"
 
     # 4. Rare chance tool break
-    if random.random() < 0.0002:
-        await bot.database.inventory_db.set_equipped_tool(user_id, "pickaxe", None)
+    # if random.random() < 0.0002:
+    #     await bot.database.inventory_db.set_equipped_tool(user_id, "pickaxe", None)
 
     # 5. Tool & stats
     equipped = await bot.database.inventory_db.get_equipped_tools(user_id)

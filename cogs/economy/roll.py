@@ -5,17 +5,7 @@ import discord
 from constants.game_config import GameEventType
 from discord import app_commands
 from discord.ext import commands
-from utils.balance_helper import validate_amount
-
-
-def calculate_percentage_amount(balance: int, action: Optional[str]) -> Optional[int]:
-    if action == "all":
-        return balance
-    elif action == "half":
-        return balance // 2
-    elif action == "25%":
-        return balance // 4
-    return None
+from utils.balance_helper import calculate_percentage_amount, validate_amount
 
 
 class Roll(commands.Cog):
@@ -28,8 +18,9 @@ class Roll(commands.Cog):
     )
     @app_commands.choices(
         action=[
-            app_commands.Choice(name="All", value="all"),
-            app_commands.Choice(name="Half", value="half"),
+            app_commands.Choice(name="100%", value="100%"),
+            app_commands.Choice(name="75%", value="75%"),
+            app_commands.Choice(name="50%", value="50%f"),
             app_commands.Choice(name="25%", value="25%"),
         ]
     )
