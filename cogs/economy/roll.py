@@ -20,7 +20,7 @@ class Roll(commands.Cog):
         action=[
             app_commands.Choice(name="100%", value="100%"),
             app_commands.Choice(name="75%", value="75%"),
-            app_commands.Choice(name="50%", value="50%f"),
+            app_commands.Choice(name="50%", value="50%"),
             app_commands.Choice(name="25%", value="25%"),
         ]
     )

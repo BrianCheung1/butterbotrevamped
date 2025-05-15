@@ -111,21 +111,21 @@ class GameStats(commands.Cog):
             stats_dict["slots_lost_amt"],
         )
 
-        add_game_block(
-            "Wordles",
-            stats_dict["wordles_won"],
-            stats_dict["wordles_lost"],
-            stats_dict["wordles_played"],
-        )
+        # add_game_block(
+        #     "Wordles",
+        #     stats_dict["wordles_won"],
+        #     stats_dict["wordles_lost"],
+        #     stats_dict["wordles_played"],
+        # )
 
-        add_game_block(
-            "Roulettes",
-            stats_dict["roulettes_won"],
-            stats_dict["roulettes_lost"],
-            stats_dict["roulettes_played"],
-            stats_dict["roulettes_won_amt"],
-            stats_dict["roulettes_lost_amt"],
-        )
+        # add_game_block(
+        #     "Roulettes",
+        #     stats_dict["roulettes_won"],
+        #     stats_dict["roulettes_lost"],
+        #     stats_dict["roulettes_played"],
+        #     stats_dict["roulettes_won_amt"],
+        #     stats_dict["roulettes_lost_amt"],
+        # )
 
         embed.set_footer(text="🧠 Keep grinding and improve your stats!")
 

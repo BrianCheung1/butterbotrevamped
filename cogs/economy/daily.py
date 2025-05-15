@@ -28,13 +28,23 @@ class Daily(commands.Cog):
             ).replace(tzinfo=timezone.utc)
             days_passed = (now - last_time).days
 
-            if days_passed < 1:
-                msg = get_cooldown_response(
-                    last_daily_at, datetime.timedelta(days=1), "Daily cooldown:"
+            if now.date() == last_time.date():
+                tomorrow = (now + datetime.timedelta(days=1)).replace(
+                    hour=0, minute=0, second=0, microsecond=0
                 )
-                if msg:
-                    await interaction.response.send_message(msg)
-                    return
+                time_until_tomorrow = int(tomorrow.timestamp())
+                # msg = get_cooldown_response(
+                #     last_daily_at, time_until_tomorrow, "Daily cooldown:"
+                # )
+                # if msg:
+                #     await interaction.response.send_message(msg)
+                #     return
+                msg = (
+                    f"🕒 You’ve already claimed your daily! Come back <t:{time_until_tomorrow}:R> "
+                    f"(at <t:{time_until_tomorrow}:t> your time)."
+                )
+                await interaction.response.send_message(msg)
+                return
             elif days_passed >= 2:
                 reset_streak = True
                 daily_streak = 0

@@ -28,7 +28,7 @@ class ValorantMMRHistory(commands.Cog):
         await self.load_cached_players()
 
     async def cog_unload(self):
-        self.update_task.cancel()
+        self.periodic_mmr_update_loop.cancel()
 
     @tasks.loop(hours=1)
     async def periodic_mmr_update_loop(self):
@@ -39,6 +39,7 @@ class ValorantMMRHistory(commands.Cog):
         # Counters for logging purposes
         updated_players = 0
         skipped_players = 0
+        processed_details = []
         skipped_details = []
 
         for i in range(0, len(players), 5):
@@ -59,8 +60,11 @@ class ValorantMMRHistory(commands.Cog):
                         last_updated = datetime.fromisoformat(last_updated)
 
                     # Compare to current UTC time
-                    if datetime.utcnow() - last_updated > timedelta(minutes=10):
+                    if datetime.utcnow() - last_updated > timedelta(minutes=60):
                         eligible_batch.append(player)
+                        processed_details(
+                            f"{player['name']}#{player['tag']} (Last updated: {last_updated})"
+                        )
                     else:
                         skipped_players += 1
                         skipped_details.append(
@@ -76,7 +80,6 @@ class ValorantMMRHistory(commands.Cog):
                     )
 
             if not eligible_batch:
-                await asyncio.sleep(60)
                 continue
 
             # Fetch MMR data concurrently for eligible players
@@ -105,7 +108,6 @@ class ValorantMMRHistory(commands.Cog):
                             elo=result["elo"],
                         )
                         updated_players += 1
-                        self.bot.logger.info(f"Updated MMR for {name}#{tag}")
                     except Exception as e:
                         self.bot.logger.error(
                             f"Failed to update DB for {name}#{tag}: {e}"
@@ -115,8 +117,10 @@ class ValorantMMRHistory(commands.Cog):
 
         # Log the results
         self.bot.logger.info(
-            f"Finished MMR update cycle. Updated: {updated_players}, Skipped: {skipped_players}"
+            f"Finished MMR update cycle. Updated: {updated_players}, Skipped: {skipped_players} "
         )
+        if updated_players > 0:
+            self.bot.logger.info(f"Updated players due to recent update: {', '.join(processed_details)}")
         if skipped_players > 0:
             self.bot.logger.info(
                 f"Skipped players due to recent update: {', '.join(skipped_details)}"
@@ -176,7 +180,7 @@ class ValorantMMRHistory(commands.Cog):
         self, name: str, tag: str, region: str
     ) -> Optional[dict]:
         return await self.fetch_val_api(
-            f"https://api.henrikdev.xyz/valorant/v2/mmr-history/{region}/pc/{name}/{tag}",
+            f"https://api.henrikdev.xyz/valorant/v2/stored-mmr-history/{region}/pc/{name}/{tag}",
             name,
             tag,
         )
@@ -265,7 +269,7 @@ class ValorantMMRHistory(commands.Cog):
             name=name, tag=tag, rank=current_rank, elo=current_rr
         )
 
-        history = history_data["data"].get("history", [])
+        history = history_data.get("data", [])
         if not history:
             return await interaction.followup.send(
                 f"No match history found for {name}#{tag}."

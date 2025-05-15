@@ -151,7 +151,7 @@ def create_mining_embed(
 
 class MineAgainView(discord.ui.View):
     def __init__(self, bot, user_id, active_mining_sessions, cooldowns, failures):
-        super().__init__(timeout=300)
+        super().__init__(timeout=900)
         self.bot = bot
         self.user_id = user_id
         self.clicks = 0
@@ -189,12 +189,10 @@ class MineAgainView(discord.ui.View):
                 )
                 return
 
-            await interaction.response.defer()
-
             if self.captcha_active:
                 self.bot.logger.error("Captcha Active")
                 return
-
+            await interaction.response.defer()
             self.clicks += 1
 
             if self.clicks >= self.click_threshold:
