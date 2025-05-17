@@ -101,7 +101,7 @@ class Steal(commands.Cog):
 
         # Apply target resistance buff
         final_rate = apply_buff(buffed_rate, target_buffs, "steal_resistance")
-
+        self.bot.logger.info(final_rate)
         # Determine outcome
         success = random.random() < final_rate
         base_rate_pct = round(base_rate * 100, 1)

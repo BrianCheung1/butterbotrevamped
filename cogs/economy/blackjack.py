@@ -155,13 +155,17 @@ class Blackjack(commands.Cog):
             return
 
         await interaction.response.defer()
-        balance = await self.bot.database.user_db.get_balance(user_id)
-
+        if not action and not amount:
+            await interaction.edit_original_response(
+                content="You must specify an amount or choose a blackjack option.",
+            )
+            return
         if amount and action:
             await interaction.edit_original_response(
                 content="You can only choose one option: amount or action."
             )
             return
+        balance = await self.bot.database.user_db.get_balance(user_id)
 
         if action and not amount:
             amount = calculate_percentage_amount(balance, action.value)
@@ -378,17 +382,17 @@ async def perform_blackjack(bot, interaction, user_id, amount, action, balance):
             name="Dealer's hand", value=format_hand(dealer_hand), inline=False
         )
         embed.add_field(
-            name="Prev Balance", value=f"${format_number(prev_balance)}", inline=False
+            name="Prev Balance", value=f"${format_number(prev_balance)}", inline=True
         )
         embed.add_field(
             name="Current Balance",
             value=f"${format_number(prev_balance + outcome)}",
-            inline=False,
+            inline=True,
         )
         embed.add_field(
             name="Result",
             value=f"{result} ${format_number(abs(outcome))}",
-            inline=False,
+            inline=True,
         )
         embed.set_footer(
             text=f"Blackjacks Won: {stats['blackjacks_won']} | "

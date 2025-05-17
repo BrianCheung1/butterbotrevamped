@@ -5,6 +5,7 @@ from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from utils.balance_helper import calculate_percentage_amount, validate_amount
 from utils.formatting import format_number
 
 
@@ -144,8 +145,9 @@ class Bank(commands.Cog):
     )
     @app_commands.choices(
         action=[
-            app_commands.Choice(name="All", value="all"),
-            app_commands.Choice(name="Half", value="half"),
+            app_commands.Choice(name="100%", value="100%"),
+            app_commands.Choice(name="75%", value="75%"),
+            app_commands.Choice(name="50%", value="50%"),
             app_commands.Choice(name="25%", value="25%"),
         ]
     )
@@ -162,41 +164,38 @@ class Bank(commands.Cog):
                 ephemeral=True,
             )
             return
+        await interaction.response.defer()
+        if not action and not amount:
+            await interaction.edit_original_response(
+                content="You must specify an amount or choose a deposit option.",
+            )
+            return
+
+        if amount and action:
+            await interaction.edit_original_response(
+                content="You can only choose one option: amount or action."
+            )
+            return
         balance, bank_stats = await self.get_user_stats(user_id)
         available_space = bank_stats["bank_cap"] - bank_stats["bank_balance"]
 
-        if balance <= 0:
-            await interaction.response.send_message(
-                "You have no money to deposit.", ephemeral=True
-            )
-            return
-
-        if not action and not amount:
-            await interaction.response.send_message(
-                "You must specify an amount or choose a deposit option.", ephemeral=True
-            )
-            return
-
-        # Determine amount to deposit
-        if action:
-            percent_map = {"all": 1, "half": 0.5, "25%": 0.25}
-            amount_to_deposit = int(balance * percent_map.get(action.value, 0))
-        else:
-            if amount > balance:
-                await interaction.response.send_message(
-                    f"You cannot deposit more than your current balance (${format_number(balance)}).",
-                    ephemeral=True,
-                )
-                return
+        if action and not amount:
+            amount_to_deposit = calculate_percentage_amount(balance, action.value)
+        elif amount and not action:
             amount_to_deposit = amount
+
+        error = validate_amount(amount_to_deposit, balance)
+        if error:
+            await interaction.edit_original_response(content=error)
+            return
 
         # Ensure it fits in the bank
         if amount_to_deposit > available_space:
             amount_to_deposit = available_space
 
         if amount_to_deposit <= 0:
-            await interaction.response.send_message(
-                f"You cannot deposit more than your bank capacity.\nCurrent Bank Balance: ${format_number(bank_stats['bank_balance'])}.\nCurrent Bank Cap: ${format_number(bank_stats['bank_cap'])}",
+            await interaction.edit_original_response(
+                content=f"You cannot deposit more than your bank capacity.\nCurrent Bank Balance: ${format_number(bank_stats['bank_balance'])}.\nCurrent Bank Cap: ${format_number(bank_stats['bank_cap'])}",
                 ephemeral=True,
             )
             return
@@ -216,7 +215,7 @@ class Bank(commands.Cog):
             new_bank=bank_stats["bank_balance"] + amount_to_deposit,
             new_wallet=balance - amount_to_deposit,
         )
-        await interaction.response.send_message(embed=embed)
+        await interaction.edit_original_response(embed=embed)
 
     @app_commands.command(name="withdraw", description="Withdraw money from your bank.")
     @app_commands.describe(
@@ -225,8 +224,9 @@ class Bank(commands.Cog):
     )
     @app_commands.choices(
         action=[
-            app_commands.Choice(name="All", value="all"),
-            app_commands.Choice(name="Half", value="half"),
+            app_commands.Choice(name="100%", value="100%"),
+            app_commands.Choice(name="75%", value="75%"),
+            app_commands.Choice(name="50%", value="50%"),
             app_commands.Choice(name="25%", value="25%"),
         ]
     )
@@ -243,39 +243,28 @@ class Bank(commands.Cog):
                 ephemeral=True,
             )
             return
+        await interaction.response.defer()
         balance, bank_stats = await self.get_user_stats(user_id)
         bank_balance = bank_stats["bank_balance"]
-
-        if bank_balance <= 0:
-            await interaction.response.send_message(
-                "You have no money in your bank to withdraw.", ephemeral=True
-            )
-            return
-
         if not action and not amount:
-            await interaction.response.send_message(
-                "You must specify an amount or choose a withdrawal option.",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content="You must specify an amount or choose a withdraw option.",
             )
             return
 
-        # Determine amount to withdraw
-        if action:
-            percent_map = {"all": 1, "half": 0.5, "25%": 0.25}
-            amount_to_withdraw = int(bank_balance * percent_map.get(action.value, 0))
-        else:
-            if amount > bank_balance:
-                await interaction.response.send_message(
-                    f"You cannot withdraw more than your bank balance (${format_number(bank_balance)}).",
-                    ephemeral=True,
-                )
-                return
-            amount_to_withdraw = amount
-
-        if amount_to_withdraw <= 0:
-            await interaction.response.send_message(
-                "Withdrawal amount must be greater than zero.", ephemeral=True
+        if amount and action:
+            await interaction.edit_original_response(
+                content="You can only choose one option: amount or action."
             )
+            return
+
+        if action and not amount:
+            amount_to_withdraw = calculate_percentage_amount(bank_balance, action.value)
+        elif amount and not action:
+            amount_to_withdraw = amount
+        error = validate_amount(amount_to_withdraw, bank_balance)
+        if error:
+            await interaction.edit_original_response(content=error)
             return
 
         # Update DB
@@ -293,7 +282,7 @@ class Bank(commands.Cog):
             new_bank=bank_balance - amount_to_withdraw,
             new_wallet=balance + amount_to_withdraw,
         )
-        await interaction.response.send_message(embed=embed)
+        await interaction.edit_original_response(embed=embed)
 
     @app_commands.command(
         name="setbankchannel",

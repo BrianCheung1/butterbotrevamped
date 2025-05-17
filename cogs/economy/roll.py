@@ -39,13 +39,17 @@ class Roll(commands.Cog):
             )
             return
         await interaction.response.defer()
-        balance = await self.bot.database.user_db.get_balance(user_id)
-
+        if not action and not amount:
+            await interaction.edit_original_response(
+                content="You must specify an amount or choose a roll option.",
+            )
+            return
         if amount and action:
             await interaction.edit_original_response(
                 content="You can only choose one option: amount or action."
             )
             return
+        balance = await self.bot.database.user_db.get_balance(user_id)
 
         if action and not amount:
             amount = calculate_percentage_amount(balance, action.value)

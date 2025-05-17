@@ -30,7 +30,7 @@ class ValorantMMRHistory(commands.Cog):
     async def cog_unload(self):
         self.periodic_mmr_update_loop.cancel()
 
-    @tasks.loop(hours=1)
+    @tasks.loop(hours=2)
     async def periodic_mmr_update_loop(self):
         self.bot.logger.info("Starting MMR update cycle...")
 
@@ -60,9 +60,9 @@ class ValorantMMRHistory(commands.Cog):
                         last_updated = datetime.fromisoformat(last_updated)
 
                     # Compare to current UTC time
-                    if datetime.utcnow() - last_updated > timedelta(minutes=60):
+                    if datetime.utcnow() - last_updated >= timedelta(minutes=60):
                         eligible_batch.append(player)
-                        processed_details(
+                        processed_details.append(
                             f"{player['name']}#{player['tag']} (Last updated: {last_updated})"
                         )
                     else:
@@ -120,7 +120,9 @@ class ValorantMMRHistory(commands.Cog):
             f"Finished MMR update cycle. Updated: {updated_players}, Skipped: {skipped_players} "
         )
         if updated_players > 0:
-            self.bot.logger.info(f"Updated players due to recent update: {', '.join(processed_details)}")
+            self.bot.logger.info(
+                f"Updated players due to recent update: {', '.join(processed_details)}"
+            )
         if skipped_players > 0:
             self.bot.logger.info(
                 f"Skipped players due to recent update: {', '.join(skipped_details)}"
@@ -181,6 +183,13 @@ class ValorantMMRHistory(commands.Cog):
     ) -> Optional[dict]:
         return await self.fetch_val_api(
             f"https://api.henrikdev.xyz/valorant/v2/stored-mmr-history/{region}/pc/{name}/{tag}",
+            name,
+            tag,
+        )
+
+    async def get_player_mmr_history_updated(self, name: str, tag: str, region: str):
+        return await self.fetch_val_api(
+            f"https://api.henrikdev.xyz/valorant/v2/mmr-history/{region}/pc/{name}/{tag}",
             name,
             tag,
         )
@@ -334,7 +343,7 @@ class ValorantMMRHistory(commands.Cog):
             name="Win/Loss Ratio", value=f"{int(win_loss_ratio * 100)}%", inline=True
         )
         embed.add_field(
-            name="Total RR Change", value=f"{total_rr_change} RR", inline=True
+            name="Total RR Change", value=f"{total_rr_change:+} RR", inline=True
         )
         embed.add_field(name="\u200b", value="\u200b", inline=True)
         embed.add_field(name="Starting Rank", value=starting_rank, inline=True)
