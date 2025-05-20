@@ -45,7 +45,7 @@ class WorkStats(commands.Cog):
         embed.add_field(
             name="⛏️ __Mining Stats__",
             value=(
-                f"**Total Mining Clicks:** {work_stats.get('total_mining', 0)}\n"
+                f"**Total Mining Clicks:** {work_stats.get('total_mining', 0):,}\n"
                 f"**Total Value Collected:** ${format_number(work_stats.get('total_mining_value', 0))}\n"
                 f"**Level:** {work_stats.get('mining_level', 1)}\n"
                 f"**XP:** {mining_xp}/{mining_next_level_xp}\n"
@@ -61,7 +61,7 @@ class WorkStats(commands.Cog):
         embed.add_field(
             name="🎣 __Fishing Stats__",
             value=(
-                f"**Total Fishing Clicks:** {work_stats.get('total_fishing', 0)}\n"
+                f"**Total Fishing Clicks:** {work_stats.get('total_fishing', 0):,}\n"
                 f"**Total Value Collected:** ${format_number(work_stats.get('total_fishing_value', 0))}\n"
                 f"**Level:** {work_stats.get('fishing_level', 1)}\n"
                 f"**XP:** {fishing_xp}/{fishing_next_level_xp}\n"

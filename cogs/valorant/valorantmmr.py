@@ -19,8 +19,6 @@ class ValorantMMRHistory(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.cached_players = {}  # Changed to a dictionary
-        self.cached_leaderboard = None
-        self.last_leaderboard_update = None
         self.rate_semaphore = asyncio.Semaphore(5)
         self.periodic_mmr_update_loop.start()
 
@@ -30,7 +28,7 @@ class ValorantMMRHistory(commands.Cog):
     async def cog_unload(self):
         self.periodic_mmr_update_loop.cancel()
 
-    @tasks.loop(hours=2)
+    @tasks.loop(hours=24)
     async def periodic_mmr_update_loop(self):
         self.bot.logger.info("Starting MMR update cycle...")
 
@@ -131,9 +129,7 @@ class ValorantMMRHistory(commands.Cog):
     async def load_cached_players(self):
         """Load cached players when cog is loaded"""
         mmr_data = await self.bot.database.players_db.get_all_player_mmr()
-        self.cached_players = {
-            (d["name"], d["tag"]): d for d in mmr_data
-        }  # Storing data in cached_players
+        self.cached_players = {(d["name"], d["tag"]): d for d in mmr_data}
         self.bot.logger.info(f"Cached {len(mmr_data)} Valorant players.")
 
     async def fetch_val_api(self, url: str, name: str, tag: str) -> Optional[dict]:
@@ -143,21 +139,22 @@ class ValorantMMRHistory(commands.Cog):
             return None
 
         headers = {"Authorization": VAL_KEY}
-
         try:
-            self.bot.logger.info(f"Requesting URL: {url}")
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
                         self.bot.logger.info(
-                            f"Successfully fetched data for {name}#{tag}"
+                            f"Successfully fetched data for {name}#{tag} from URL: {url}"
                         )
                         return await response.json()
-                    self.bot.logger.error(
-                        f"Failed to fetch data for {name}#{tag}. Status: {response.status}"
-                    )
+                    else:
+                        self.bot.logger.warning(
+                            f"Failed to fetch data for {name}#{tag} from URL: {url} - HTTP Status: {response.status}"
+                        )
         except Exception as e:
-            self.bot.logger.error(f"API exception for {name}#{tag}: {e}")
+            self.bot.logger.error(
+                f"Exception while fetching data for {name}#{tag} from URL: {url} - Error: {e}"
+            )
         return None
 
     async def fetch_player_mmr(self, name: str, tag: str, region: str = "na"):
@@ -167,18 +164,10 @@ class ValorantMMRHistory(commands.Cog):
                 current = data["data"].get("current", {})
                 rank = current.get("tier", {}).get("name", "Unknown")
                 elo = current.get("rr", 0)
-
-                # Log if fetching new data
-                self.bot.logger.info(
-                    f"Fetching {name}#{tag} from API. Rank: {rank}, Elo: {elo}"
-                )  # Update the last fetched time
                 return {"name": name, "tag": tag, "rank": rank, "elo": elo}
-            # Log if failed to fetch data
-            self.bot.logger.error(f"Failed to fetch data for {name}#{tag}.")
-
         return None
 
-    async def get_player_mmr_history(
+    async def get_full_mmr_history(
         self, name: str, tag: str, region: str
     ) -> Optional[dict]:
         return await self.fetch_val_api(
@@ -187,7 +176,9 @@ class ValorantMMRHistory(commands.Cog):
             tag,
         )
 
-    async def get_player_mmr_history_updated(self, name: str, tag: str, region: str):
+    async def get_recent_mmr_history(
+        self, name: str, tag: str, region: str
+    ) -> Optional[dict]:
         return await self.fetch_val_api(
             f"https://api.henrikdev.xyz/valorant/v2/mmr-history/{region}/pc/{name}/{tag}",
             name,
@@ -246,56 +237,96 @@ class ValorantMMRHistory(commands.Cog):
         time: Optional[int] = 12,
         region: Optional[str] = "na",
     ):
+
         await interaction.response.defer()
         name, tag, region = name.lower(), tag.lower(), region.lower()
 
-        # Fetch both requests in parallel
-        history_data, mmr_data = await asyncio.gather(
-            self.get_player_mmr_history(name, tag, region),
-            self.get_player_mmr(name, tag, region),
-        )
+        cache_key = (name, tag)
+        now = datetime.now(timezone.utc)
+        cached_data = self.cached_players.get(cache_key)
 
-        if not history_data or "data" not in history_data:
-            return await interaction.followup.send(
-                f"Error fetching MMR history for {name}#{tag}."
-            )
-        if not mmr_data or "data" not in mmr_data:
-            return await interaction.followup.send(
-                f"Error fetching current MMR for {name}#{tag}."
+        if cached_data and (
+            now - cached_data.get("timestamp", now - timedelta(minutes=5))
+            < timedelta(minutes=5)
+        ):
+            self.bot.logger.info(f"Using cached data for {name}#{tag}")
+            mmr_data = cached_data["mmr_data"]
+            combined_history = cached_data["history"]
+        else:
+            self.bot.logger.info(f"Using Fresh Data for {name}#{tag}")
+            # Fetch history and current MMR concurrently
+            recent_history_data, full_history_data, mmr_data = await asyncio.gather(
+                self.get_recent_mmr_history(name, tag, region),
+                self.get_full_mmr_history(name, tag, region),
+                self.get_player_mmr(name, tag, region),
             )
 
+            if not recent_history_data or "data" not in recent_history_data:
+                return await interaction.followup.send(
+                    f"Error fetching recent MMR history for {name}#{tag}"
+                )
+
+            if not full_history_data or "data" not in full_history_data:
+                return await interaction.followup.send(
+                    f"Error fetching full MMR history for {name}#{tag}."
+                )
+            if not mmr_data or "data" not in mmr_data:
+                return await interaction.followup.send(
+                    f"Error fetching current MMR for {name}#{tag}."
+                )
+
+            recent_matches = recent_history_data.get("data", {}).get("history", [])
+            full_matches = full_history_data.get("data", [])
+
+            seen_match_id = set()
+            combined_history = []
+            for match in recent_matches + full_matches:
+                match_id = match.get("match_id")
+                if match_id not in seen_match_id:
+                    seen_match_id.add(match_id)
+                    combined_history.append(match)
+
+            if not combined_history:
+                return await interaction.followup.end(
+                    f"No match history found for {name}#{tag}"
+                )
+
+            combined_history.sort(key=lambda m: m["date"], reverse=True)
+
+        # Extract current rank info once
         current = mmr_data["data"].get("current", {})
         current_rank = current.get("tier", {}).get("name", "Unknown")
         current_rr = current.get("rr", 0)
         shields = current.get("rank_protection_shields", 0)
 
-        # Save the player data in the cache if not already there
+        # Cache and save player info
         self.cached_players[(name, tag)] = {
             "rank": current_rank,
             "elo": current_rr,
-        }  # Store data in cached_players
+            "mmr_data": mmr_data,
+            "history": combined_history,
+            "timestamp": datetime.now(timezone.utc),
+        }
         await self.bot.database.players_db.save_player(
             name=name, tag=tag, rank=current_rank, elo=current_rr
         )
 
-        history = history_data.get("data", [])
-        if not history:
-            return await interaction.followup.send(
-                f"No match history found for {name}#{tag}."
-            )
-
+        # Filter matches by time window
         time_limit = datetime.now(timezone.utc) - timedelta(hours=time)
         recent_matches = [
-            m for m in history if convert_to_datetime(m["date"]) >= time_limit
+            m for m in combined_history if convert_to_datetime(m["date"]) >= time_limit
         ]
         earlier_match = next(
-            (m for m in history if convert_to_datetime(m["date"]) < time_limit), None
+            (
+                m
+                for m in combined_history
+                if convert_to_datetime(m["date"]) < time_limit
+            ),
+            None,
         )
-        if not recent_matches:
-            current = mmr_data["data"].get("current", {})
-            current_rank = current.get("tier", {}).get("name", "Unknown")
-            current_rr = current.get("rr", 0)
 
+        # If no recent matches in the time range, just show current rank/rr
+        if not recent_matches:
             embed = discord.Embed(
                 title=f"Current Rank and RR for {name}#{tag}",
                 description="No recent matches found in the selected time range.",
@@ -303,14 +334,13 @@ class ValorantMMRHistory(commands.Cog):
             )
             embed.add_field(name="Current Rank", value=current_rank, inline=True)
             embed.add_field(name="Current RR", value=str(current_rr), inline=True)
-
             return await interaction.followup.send(embed=embed)
 
+        # Calculate stats
         starting_elo = (
             earlier_match["elo"] if earlier_match else recent_matches[-1]["elo"]
         )
         starting_rank = earlier_match["tier"]["name"] if earlier_match else "Unknown"
-
         ending_elo = recent_matches[0]["elo"]
         total_rr_change = ending_elo - starting_elo
 
@@ -320,17 +350,30 @@ class ValorantMMRHistory(commands.Cog):
         total_matches = len(recent_matches)
         win_loss_ratio = wins / total_matches if total_matches else 0
 
-        def format_match(m):
+        def format_match_entries(m):
             change = m["last_change"]
+            refunded = m.get("refunded_rr", 0)
+
             emoji = "✅" if change > 0 else "❌" if change < 0 else "➖"
             sign = "+" if change > 0 else ""
-            return f"{emoji} ({sign}{change})"
+            entries = [f"{emoji} ({sign}{change})"]
 
-        match_display = [format_match(m) for m in recent_matches[:20]]
+            if refunded:
+                entries.append(f"↩️ (+{refunded})")  # Refund as a separate column
+
+            return entries
+
+        # Flattened list of all match and refund entries
+        match_display = []
+        for m in recent_matches[:20]:
+            match_display.extend(format_match_entries(m))
+
+        # Group entries into rows of 5 columns
         grouped_matches = "\n".join(
             "  ".join(match_display[i : i + 5]) for i in range(0, len(match_display), 5)
         )
 
+        # Create embed summary
         embed = discord.Embed(
             title=f"MMR history for {name}#{tag} (last {time} hours)",
             description="Here is a summary of your recent matches.",
@@ -353,7 +396,9 @@ class ValorantMMRHistory(commands.Cog):
         embed.add_field(name="Current RR", value=str(current_rr), inline=True)
         embed.add_field(name="\u200b", value="\u200b", inline=True)
         embed.add_field(
-            name="Match History (Latest → Oldest)", value=grouped_matches, inline=False
+            name="Match History (Latest → Oldest)\n↩️ = Refunded RR",
+            value=grouped_matches,
+            inline=False,
         )
         embed.add_field(name="Total Shields", value=str(shields), inline=True)
 
@@ -362,7 +407,7 @@ class ValorantMMRHistory(commands.Cog):
 
         embed.add_field(
             name="First Match Start Time",
-            value=discord.utils.format_dt(start_time, style="t"),  # Full timestamp
+            value=discord.utils.format_dt(start_time, style="t"),
             inline=True,
         )
         embed.add_field(

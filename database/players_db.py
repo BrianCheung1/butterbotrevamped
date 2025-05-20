@@ -12,6 +12,30 @@ class PlayersDatabaseManager:
         self.connection = connection
 
     @db_error_handler
+    async def get_player(self, name: str, tag: str) -> dict | None:
+        """Get a specific player from the database."""
+        name, tag = name.lower(), tag.lower()
+
+        try:
+            async with self.connection.execute(
+                "SELECT name, tag, rank, elo, last_updated FROM players WHERE name = ? AND tag = ?",
+                (name, tag),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        "name": row[0],
+                        "tag": row[1],
+                        "rank": row[2],
+                        "elo": row[3],
+                        "last_updated": row[4],
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching player {name}#{tag} from database: {e}")
+            return None
+
+    @db_error_handler
     async def save_player(
         self, name: str, tag: str, rank: str = None, elo: int = None
     ) -> None:

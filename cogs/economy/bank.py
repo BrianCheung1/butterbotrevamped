@@ -196,7 +196,6 @@ class Bank(commands.Cog):
         if amount_to_deposit <= 0:
             await interaction.edit_original_response(
                 content=f"You cannot deposit more than your bank capacity.\nCurrent Bank Balance: ${format_number(bank_stats['bank_balance'])}.\nCurrent Bank Cap: ${format_number(bank_stats['bank_cap'])}",
-                ephemeral=True,
             )
             return
 
