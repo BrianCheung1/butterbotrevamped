@@ -17,3 +17,12 @@ def convert_to_datetime(date_str: str) -> datetime:
 
 def get_rank_value(rank_name: str) -> int:
     return RANK_ORDER.get(rank_name.lower(), -1)
+
+
+def parse_season(season_code: str):
+    try:
+        episode = int(season_code[1 : season_code.index("a")])
+        act = int(season_code[season_code.index("a") + 1 :])
+        return (episode, act)
+    except Exception:
+        return (0, 0)

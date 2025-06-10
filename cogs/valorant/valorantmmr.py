@@ -1,5 +1,6 @@
 import asyncio
 import os
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -8,7 +9,8 @@ import discord
 from discord import app_commands
 from discord.app_commands import Choice
 from discord.ext import commands, tasks
-from utils.valorant_helpers import convert_to_datetime, get_rank_value
+from utils.valorant_helpers import (convert_to_datetime, get_rank_value,
+                                    parse_season)
 
 VAL_KEY = os.getenv("VAL_KEY")
 
@@ -19,6 +21,7 @@ class ValorantMMRHistory(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.cached_players = {}  # Changed to a dictionary
+        self.cached_stats = {}
         self.rate_semaphore = asyncio.Semaphore(5)
         self.periodic_mmr_update_loop.start()
 
@@ -188,6 +191,15 @@ class ValorantMMRHistory(commands.Cog):
     async def get_player_mmr(self, name: str, tag: str, region: str) -> Optional[dict]:
         return await self.fetch_val_api(
             f"https://api.henrikdev.xyz/valorant/v3/mmr/{region}/pc/{name}/{tag}",
+            name,
+            tag,
+        )
+
+    async def get_player_match_history(
+        self, name: str, tag: str, region: str
+    ) -> Optional[dict]:
+        return await self.fetch_val_api(
+            f"https://api.henrikdev.xyz/valorant/v1/stored-matches/{region}/{name}/{tag}",
             name,
             tag,
         )
@@ -495,10 +507,134 @@ class ValorantMMRHistory(commands.Cog):
         embed = view.generate_embed()
         await interaction.followup.send(embed=embed, view=view)
 
+    @app_commands.command(name="valorantstats", description="Show player stats")
+    @app_commands.describe(
+        name="Player's username", tag="Player's tag", region="Region (e.g., na, eu)"
+    )
+    @app_commands.autocomplete(name=name_autocomplete, tag=tag_autocomplete)
+    async def valorant_stats(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        tag: str,
+        region: Optional[str] = "na",
+        time: Optional[int] = 12,
+    ):
+        await interaction.response.defer()
+
+        name = name.lower()
+        tag = tag.lower()
+        region = region.lower()
+
+        cache_key = (name, tag, region)
+        now = datetime.now(timezone.utc)
+
+        cached = self.cached_stats.get(cache_key)
+
+        # Use cache if less than 5 minutes old
+        if cached and (
+            now - cached.get("timestamp", now - timedelta(minutes=10))
+        ) < timedelta(minutes=5):
+            self.bot.logger.info(f"Using cached stats for {name}#{tag}")
+            data = cached["data"]
+        else:
+            self.bot.logger.info(f"Fetching fresh stats for {name}#{tag}")
+            data = await self.get_player_match_history(name, tag, region)
+
+            if data.get("status") != 200 or "data" not in data:
+                return await interaction.followup.send("Could not fetch match history.")
+
+            # Cache the fresh data
+            self.cached_stats[cache_key] = {
+                "data": data,
+                "timestamp": now,
+            }
+
+        matches = data["data"]
+
+        if not matches:
+            return await interaction.followup.send("No matches found for this player.")
+
+        # Identify latest season
+        season_codes = {
+            m["meta"]["season"]["short"]
+            for m in matches
+            if "meta" in m and "season" in m["meta"]
+        }
+
+        if not season_codes:
+            return await interaction.followup.send("No season info found in matches.")
+
+        latest_season = max(season_codes, key=parse_season)
+
+        # Filter matches for latest season
+        latest_season_matches = [
+            m for m in matches if m["meta"]["season"]["short"] == latest_season
+        ]
+
+        if not latest_season_matches:
+            return await interaction.followup.send("No matches in the latest season.")
+
+        time_limit = now - timedelta(hours=time)
+
+        matches_in_time_window = [
+            m
+            for m in latest_season_matches
+            if convert_to_datetime(m["meta"]["started_at"]) >= time_limit
+        ]
+
+        if not matches_in_time_window:
+            return await interaction.followup.send(
+                f"No matches found in the last {time} hours for {name}#{tag}."
+            )
+
+        # Count stats per cluster
+        cluster_stats = defaultdict(
+            lambda: {"wins": 0, "losses": 0, "draws": 0, "total": 0}
+        )
+
+        for match in matches_in_time_window:
+            meta = match["meta"]
+            cluster = meta.get("cluster", "Unknown")
+            cluster_stats[cluster]["total"] += 1
+
+            player_team = match["stats"]["team"].lower()
+            teams = {k.lower(): v for k, v in match["teams"].items()}
+
+            player_score = teams.get(player_team, 0)
+            opponent_score = teams["red"] if player_team == "blue" else teams["blue"]
+
+            if player_score > opponent_score:
+                cluster_stats[cluster]["wins"] += 1
+            elif player_score < opponent_score:
+                cluster_stats[cluster]["losses"] += 1
+            else:
+                cluster_stats[cluster]["draws"] += 1
+
+        # Build embed
+        embed = discord.Embed(
+            title=f"Valorant Stats for {name}#{tag} (Season: {latest_season}) (last {time} hours)",
+            color=discord.Color.purple(),
+        )
+
+        for cluster, stats in sorted(
+            cluster_stats.items(), key=lambda x: -x[1]["total"]
+        ):
+            embed.add_field(
+                name=cluster,
+                value=(
+                    f"**Wins:** {stats['wins']} | **Losses:** {stats['losses']} | "
+                    f"**Draws:** {stats['draws']} | **Total:** {stats['total']}"
+                ),
+                inline=False,
+            )
+
+        await interaction.followup.send(embed=embed)
+
 
 class ValorantLeaderboardView(discord.ui.View):
     def __init__(self, data: List[dict], interaction: discord.Interaction):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.data = data
         self.interaction = interaction
         self.page = 0

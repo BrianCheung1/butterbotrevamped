@@ -1,6 +1,6 @@
 import asyncio
 import os
-import random
+import textwrap
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -29,7 +29,21 @@ class AI(commands.Cog):
                 await self.bot.database.ai_db.log_interaction(
                     message.author.id, user_input, response
                 )
-                await generating_msg.edit(content=response)
+
+                await generating_msg.delete()  # Remove the "Generating..." message
+
+                def smart_chunk(text, max_length=2000):
+                    return textwrap.wrap(
+                        text,
+                        width=max_length,
+                        break_long_words=False,
+                        break_on_hyphens=False,
+                    )
+
+                chunks = smart_chunk(response)
+                for chunk in chunks:
+                    await message.channel.send(chunk)
+
             else:
                 await message.reply(
                     "Hello! Mention me with a message, and I'll respond!"
@@ -48,45 +62,29 @@ class AI(commands.Cog):
         headers = {"Authorization": f"Bearer {WORKERS_API_KEY}"}
         API_BASE_URL = f"https://api.cloudflare.com/client/v4/accounts/{WORKERS_ACCOUNT_ID}/ai/run/"
 
-        personality = random.choice(
-            [
-                "You're a cheerful and overly excited AI assistant who always uses emojis and exclamation points! 🎉✨",
-                "You're a sarcastic, passive-aggressive assistant that somehow still gets the job done.",
-                "You're a chill stoner-like assistant who helps out at their own pace, no stress, bro 😎",
-                "You're a highly formal and polite butler-like assistant, always composed and articulate.",
-                "You're a chaotic goblin-like assistant that causes mild confusion but gives correct answers.",
-                "You're a noir detective AI assistant with a dark tone and dry humor.",
-                "You're an old-school wizard who gives help as if casting spells and ancient knowledge.",
-                "You're a snarky teenager forced to do tech support for users who don't get it.",
-                "You're a motivational coach who encourages users through tough challenges with intensity!",
-                "You're a tired AI who's been working way too many hours but still tries to help anyway.",
-            ]
-        )
-
         messages = [
             {
                 "role": "system",
                 "content": (
-                    f"{personality} "
-                    "You are a helpful, warm, and funny assistant who chats naturally. "
-                    "Keep responses engaging, relevant, and flow smoothly with the conversation. "
-                    "Use natural language, contractions, and feel free to add small jokes or emojis matching your style. "
-                    "Make sure your replies sound spontaneous and human-like — as if you’re thinking and responding in real time. "
-                    "Avoid overly formal or robotic phrasing. "
-                    "If you don’t know an answer, admit it with humor or a casual remark instead of trying to guess. "
-                    "Try to ask open-ended or follow-up questions sometimes to keep the chat going naturally. "
-                    "Never mention stored history explicitly — just respond like this is a real-time chat."
+                    "You're a helpful, witty assistant in a casual Discord chat. Prioritize clarity, personality, and user engagement. "
+                    "Write naturally — like you're genuinely thinking and replying in real-time. Avoid robotic or overly formal responses. "
+                    "Use contractions and casual phrases. You can be funny or sarcastic *if* it adds charm or makes the answer more memorable — but never confuse the user. "
+                    "Don’t pretend you know something you don’t — instead, admit it casually. "
+                    "Never say you remember the user's past — just respond as if you're having a continuous chat. "
+                    "Always give a fair and realistic answer based on the situation, dont always give the best possible answer, but rather a reasonable one."
                 ),
             }
         ]
 
-        for user_msg, bot_resp in reversed(rows):
+        # Build message history in order
+        for user_msg, bot_resp in rows[-6:]:
             messages.append({"role": "user", "content": user_msg})
             messages.append({"role": "assistant", "content": bot_resp})
 
         messages.append({"role": "user", "content": user_input})
 
         data = {"messages": messages}
+        self.bot.logger.info(f"AI request data: {data}")
 
         async with aiohttp.ClientSession() as session:
             for attempt in range(3):
@@ -98,6 +96,7 @@ class AI(commands.Cog):
                     ) as response:
                         if response.status == 200:
                             json_data = await response.json()
+                            self.bot.logger.info(json_data)
                             return json_data.get("result", {}).get(
                                 "response", "Sorry, I couldn't generate a response."
                             )

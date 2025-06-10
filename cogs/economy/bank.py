@@ -59,7 +59,7 @@ class Bank(commands.Cog):
             user_count += 1
 
         # 🔽 Send announcement if bank channel is set
-        if self.hours % 6 == 0:
+        if self.hours % 24 == 0:
             for guild in self.bot.guilds:
                 channel_id = await self.bot.database.guild_db.get_channel(
                     guild.id, "interest_channel_id"

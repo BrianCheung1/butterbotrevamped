@@ -102,7 +102,8 @@ class StealDatabaseManager:
         query = """
         SELECT user_id, last_stolen_from_at, last_stole_from_other_at
         FROM user_steal_stats
-        WHERE last_stolen_from_at IS NOT NULL OR last_stole_from_other_at IS NOT NULL
+        WHERE last_stolen_from_at IS NOT NULL
+        ORDER BY last_stolen_from_at ASC
         """
         async with self.connection.execute(query) as cursor:
             rows = await cursor.fetchall()

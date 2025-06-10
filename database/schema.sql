@@ -36,6 +36,17 @@ CREATE TABLE IF NOT EXISTS user_game_stats (
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS roll_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_roll INTEGER NOT NULL,
+    dealer_roll INTEGER NOT NULL,
+    result TEXT NOT NULL, -- 'win', 'loss', 'tie'
+    amount INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
 -- User Heist Stats Table
 CREATE TABLE IF NOT EXISTS user_heist_stats (
     user_id INTEGER PRIMARY KEY,

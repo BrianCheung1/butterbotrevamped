@@ -116,6 +116,18 @@ async def perform_roll(bot, interaction, user_id, amount, action):
 
     # await bot.database.user_db.set_balance(user_id, final_balance)
     await bot.database.user_db.increment_balance(user_id, outcome)
+    # Log roll history
+    await bot.database.game_db.log_roll_history(
+        user_id=user_id,
+        user_roll=user_roll,
+        dealer_roll=dealer_roll,
+        result=(
+            "win"
+            if user_roll > dealer_roll
+            else "loss" if user_roll < dealer_roll else "tie"
+        ),
+        amount=amount,
+    )
 
     embed = discord.Embed(
         title="🎲 Dice Roll Result",
@@ -128,6 +140,25 @@ async def perform_roll(bot, interaction, user_id, amount, action):
     embed.set_footer(
         text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count} | Total Played: {stats['rolls_played']}"
     )
+
+    # Fetch last 10 roll results
+    history = await bot.database.game_db.get_roll_history(user_id)
+
+    # Format
+    if history:
+        history_lines = []
+        for entry in history:
+            emoji = (
+                "✅"
+                if entry["result"] == "win"
+                else "❌" if entry["result"] == "loss" else "➖"
+            )
+            history_lines.append(
+                f"{emoji} You: **{entry['user_roll']}**, Dealer: **{entry['dealer_roll']}**, Bet: ${entry['amount']:,}"
+            )
+        embed.add_field(
+            name="Last 10 Rolls", value="\n".join(history_lines), inline=False
+        )
 
     view = RollAgainView(bot, user_id, None if action else amount, action)
     view.message = await interaction.edit_original_response(embed=embed, view=view)

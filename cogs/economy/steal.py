@@ -1,4 +1,5 @@
 import datetime
+import json
 import random
 from typing import List
 
@@ -154,6 +155,7 @@ class Steal(commands.Cog):
             # await self.bot.database.user_db.set_balance(
             #     thief_id, thief_balance - lost_amount
             # )
+            await self.bot.database.user_db.increment_balance(target_id, lost_amount)
             await self.bot.database.user_db.increment_balance(thief_id, -lost_amount)
 
             await self.bot.database.steal_db.set_user_steal_stats(
@@ -180,7 +182,24 @@ class Steal(commands.Cog):
         interaction: discord.Interaction,
     ) -> None:
         await interaction.response.defer()
-        stealstatus_data = await self.bot.database.steal_db.get_all_steal_stats()
+        raw_data = await self.bot.database.steal_db.get_all_steal_stats()
+        filtered_data = [
+            row for row in raw_data if interaction.guild.get_member(row["user_id"])
+        ]
+
+        STOLEN_FROM_COOLDOWN = datetime.timedelta(hours=6)
+
+        stealstatus_data = []
+
+        for row in filtered_data:
+            if row.get("last_stolen_from_at"):
+                msg = get_cooldown_response(
+                    row["last_stolen_from_at"],
+                    STOLEN_FROM_COOLDOWN,
+                    "",
+                )
+                if msg:  # Ensure msg is not None
+                    stealstatus_data.append(row)
 
         view = StealStatusView(stealstatus_data, interaction)
         embed = view.generate_embed()
@@ -192,16 +211,14 @@ class StealStatusView(discord.ui.View):
     def __init__(self, data: List[dict], interaction: discord.Interaction):
         super().__init__(timeout=60)
         # Filter to only include members still in the guild
-        self.data = [
-            row for row in data if interaction.guild.get_member(row["user_id"])
-        ]
+        self.data = data
         self.interaction = interaction
         self.page = 0
         self.entries_per_page = 10
-        self.max_page = (len(data) - 1) // self.entries_per_page
+        self.max_page = max(0, (len(data) - 1) // self.entries_per_page)
 
         self.prev_button.disabled = True
-        if self.max_page == 0:
+        if self.max_page <= 0:
             self.next_button.disabled = True
 
     def generate_embed(self) -> discord.Embed:
@@ -213,7 +230,7 @@ class StealStatusView(discord.ui.View):
 
         lines = []
 
-        for i, row in enumerate(slice_data, start=0):  # start=1 for 1-based indexing
+        for i, row in enumerate(slice_data, start=0):
             user_id = row["user_id"]
             user = self.interaction.guild.get_member(user_id)
 

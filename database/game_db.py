@@ -102,3 +102,60 @@ class GameDatabaseManager:
             )
 
         await self.connection.commit()
+
+    @db_error_handler
+    async def log_roll_history(
+        self,
+        user_id: int,
+        user_roll: int,
+        dealer_roll: int,
+        result: str,
+        amount: int,
+    ) -> None:
+        await self.connection.execute(
+            """
+            INSERT INTO roll_history (user_id, user_roll, dealer_roll, result, amount)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, user_roll, dealer_roll, result, amount),
+        )
+
+        # Optional: limit to 10 most recent entries
+        await self.connection.execute(
+            """
+            DELETE FROM roll_history
+            WHERE id NOT IN (
+                SELECT id FROM roll_history
+                WHERE user_id = ?
+                ORDER BY timestamp DESC
+                LIMIT 10
+            ) AND user_id = ?
+            """,
+            (user_id, user_id),
+        )
+
+        await self.connection.commit()
+
+    @db_error_handler
+    async def get_roll_history(self, user_id: int, limit: int = 10) -> list[dict]:
+        async with self.connection.execute(
+            """
+            SELECT user_roll, dealer_roll, result, amount
+            FROM roll_history
+            WHERE user_id = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        return [
+            {
+                "user_roll": row[0],
+                "dealer_roll": row[1],
+                "result": row[2],
+                "amount": row[3],
+            }
+            for row in rows
+        ]
