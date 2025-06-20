@@ -4,7 +4,6 @@ from datetime import timezone
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.cooldown import get_cooldown_response
 from utils.formatting import format_number
 
 
@@ -15,7 +14,6 @@ class Daily(commands.Cog):
     @app_commands.command(name="daily", description="Claim your daily reward.")
     async def daily(self, interaction: discord.Interaction) -> None:
         user = interaction.user
-        balance = await self.bot.database.user_db.get_balance(user.id)
         daily_streak, last_daily_at = await self.bot.database.user_db.get_daily(user.id)
         daily_amount = 1000
 

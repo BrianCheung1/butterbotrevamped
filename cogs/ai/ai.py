@@ -2,7 +2,6 @@ import asyncio
 import os
 import textwrap
 from datetime import datetime
-from typing import Literal, Optional
 
 import aiohttp
 import discord

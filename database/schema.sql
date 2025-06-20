@@ -177,3 +177,22 @@ CREATE TABLE IF NOT EXISTS interactions (
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
+
+-- Uploaded Games
+CREATE TABLE IF NOT EXISTS steam_games (
+    title TEXT PRIMARY KEY,               -- Game title (must be unique)
+    add_type TEXT NOT NULL,               -- 'Added' or 'Updated'
+    download_link TEXT NOT NULL,          -- Google Drive or direct download link
+    steam_link TEXT NOT NULL,             -- URL to the Steam page
+    description TEXT,                     -- Short description of the game
+    image TEXT,                           -- Steam banner/image URL
+    build TEXT,                           -- Optional build version string
+    notes TEXT DEFAULT 'No Notes',        -- Optional user-specified notes
+    price TEXT,                           -- Display price (or N/A)
+    reviews TEXT,                         -- Steam reviews summary (e.g. 'Very Positive (2,312)')
+    app_id TEXT,                          -- Steam App ID
+    genres TEXT,                          -- Comma-separated genres
+    added_by_id TEXT,                     -- Discord user ID who added the game
+    added_by_name TEXT,                   -- Discord username of the person
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

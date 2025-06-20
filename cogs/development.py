@@ -6,21 +6,15 @@ from typing import Literal, Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils.checks import is_owner_check
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
-OWNER_ID = int(os.getenv("OWNER_ID"))
 
 
 class Development(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
         bot.tree.on_error = self.on_app_command_error
-
-    def is_owner_check(interaction: discord.Interaction) -> bool:
-        return (
-            interaction.user.id == interaction.client.owner_id
-            or interaction.user.id == OWNER_ID
-        )
 
     @app_commands.command(
         name="sync",

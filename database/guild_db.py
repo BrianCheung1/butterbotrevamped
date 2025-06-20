@@ -69,3 +69,25 @@ class GuildSettingsDatabaseManager:
 
         column_names = [description[0] for description in cursor.description]
         return dict(zip(column_names, row))
+
+    @db_error_handler
+    async def remove_channel(self, guild_id: int, channel_type: str) -> None:
+        """
+        Remove (unset) the channel of the specified type for the guild by setting it to NULL.
+        """
+        if channel_type not in {
+            "interest_channel_id",
+            "log_channel_id",
+            "announcement_channel_id",
+        }:
+            raise ValueError(f"Invalid channel_type '{channel_type}'")
+
+        await self.connection.execute(
+            f"""
+            UPDATE guild_settings
+            SET {channel_type} = NULL
+            WHERE guild_id = ?
+            """,
+            (guild_id,),
+        )
+        await self.connection.commit()

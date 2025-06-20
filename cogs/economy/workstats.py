@@ -10,7 +10,7 @@ class WorkStats(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="workstats",
+        name="work-stats",
         description="Check your work stats or someone else's.",
     )
     async def work_stats(

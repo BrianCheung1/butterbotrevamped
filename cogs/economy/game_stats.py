@@ -9,7 +9,7 @@ class GameStats(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="gamestats",
+        name="game-stats",
         description="Check your game stats or someone else's.",
     )
     async def game_stats(

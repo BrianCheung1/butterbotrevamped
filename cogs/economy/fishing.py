@@ -13,7 +13,7 @@ from utils.work import calculate_work_bonuses
 
 
 async def perform_fishing(bot, user_id):
-    start_time = time()
+    # start_time = time()
 
     # 1. Weighted rarity selection
     rarities, weights = zip(
@@ -65,7 +65,7 @@ async def perform_fishing(bot, user_id):
     await bot.database.user_db.increment_balance(user_id, total_value)
 
     # Optional: log performance
-    db_operation_time = time() - start_time
+    # db_operation_time = time() - start_time
     # bot.logger.info(f"Database operation took {db_operation_time:.4f} seconds")
 
     return (
@@ -133,7 +133,7 @@ def create_fishing_embed(
     embed.add_field(name="💰 Prev Balance", value=f"${prev_balance:,}", inline=True)
     embed.add_field(name="💰 New Balance", value=f"${new_balance:,}", inline=True)
     embed.add_field(
-        name="💰 Total Earned", value=f"${new_balance-prev_balance:,}", inline=True
+        name="💰 Total Earned", value=f"${new_balance - prev_balance:,}", inline=True
     )
     # XP info with buff bonus
     xp_line = f"LVL: {current_level} | XP: {current_xp}/{next_level_xp}"

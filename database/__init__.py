@@ -14,6 +14,7 @@ from .work_db import WorkDatabaseManager
 from .movies_db import MoviesDatabaseManager
 from .guild_db import GuildSettingsDatabaseManager
 from .ai_db import AIDatabaseManager
+from .steam_games_db import SteamGamesDatabaseManager
 
 logger = setup_logger("DatabaseManagerBase")
 
@@ -44,6 +45,9 @@ class DatabaseManager:
 
         # AI Database
         self.ai_db = AIDatabaseManager(connection)
+
+        # Steam Games Database
+        self.steam_games_db = SteamGamesDatabaseManager(connection)
 
     async def _create_user_if_not_exists(self, user_id: int) -> None:
         async with self.connection.execute(

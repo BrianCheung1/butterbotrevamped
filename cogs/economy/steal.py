@@ -1,5 +1,4 @@
 import datetime
-import json
 import random
 from typing import List
 
@@ -176,7 +175,7 @@ class Steal(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="stealstatus", description="Check all active cooldowns")
+    @app_commands.command(name="steal-status", description="Check all active cooldowns")
     async def steal_status(
         self,
         interaction: discord.Interaction,

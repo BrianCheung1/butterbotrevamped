@@ -27,6 +27,7 @@ class MyBot(commands.Bot):
         self.database = None
         self.invite_link = os.getenv("INVITE_LINK")
         self.active_blackjack_players = set()
+        self.valorant_players = {}
 
     async def init_db(self) -> None:
         async with aiosqlite.connect(

@@ -3,6 +3,7 @@ import os
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils.checks import is_owner_check
 from utils.formatting import format_number
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
@@ -11,12 +12,6 @@ DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 class Balance(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    def is_owner_check(interaction: discord.Interaction) -> bool:
-        return (
-            interaction.user.id == interaction.client.owner_id
-            or interaction.user.id == 1047615361886982235
-        )
 
     @app_commands.command(
         name="balance", description="Check your balance or someone else's."
@@ -42,7 +37,7 @@ class Balance(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
-        name="setbalance", description="Set a user's balance. (Admin only)"
+        name="set-balance", description="Set a user's balance. (Admin only)"
     )
     @app_commands.check(is_owner_check)
     @app_commands.guilds(DEV_GUILD_ID)
