@@ -29,6 +29,9 @@ class Give(commands.Cog):
         if interaction.user.id == target_id:
             await interaction.followup.send("You can't give money to yourself!")
             return
+        if user.bot:
+            await interaction.followup.send("You can't give money to bots!")
+            return
 
         balance = await self.bot.database.user_db.get_balance(user_id)
         error = validate_amount(amount, balance)

@@ -22,6 +22,11 @@ class Steal(commands.Cog):
                 "You cannot steal from yourself.", ephemeral=True
             )
             return
+        if user.bot:
+            await interaction.response.send_message(
+                "You cannot steal from bots.", ephemeral=True
+            )
+            return
 
         target_id = user.id
         thief_id = interaction.user.id
@@ -36,7 +41,7 @@ class Steal(commands.Cog):
             return
 
         STEAL_COOLDOWN = datetime.timedelta(hours=1)
-        STOLEN_FROM_COOLDOWN = datetime.timedelta(hours=6)
+        STOLEN_FROM_COOLDOWN = datetime.timedelta(hours=3)
         MIN_BALANCE_TO_STEAL = 100_000
         STEAL_SUCCESS_RATE = 0.5
         STEAL_AMOUNT_RANGE = (0.1, 0.2)
@@ -121,7 +126,7 @@ class Steal(commands.Cog):
 
             # Choose a percent within that tier
             percent = random.uniform(low, high)
-            if target_balance > 10_000_000:
+            if target_balance > 1_000_000:
                 percent *= 0.1
             stolen_amount = max(1, int(target_balance * percent))
             stolen_amount = min(stolen_amount, target_balance)
@@ -142,9 +147,14 @@ class Steal(commands.Cog):
                 target_id, stolen_amount, StealEventType.VICTIM_SUCCESS
             )
 
+            percent_stolen = stolen_amount / target_balance * 100
+
             embed = discord.Embed(
                 title="💰 Theft Success!",
-                description=f"You stole **${format_number(stolen_amount)}** from {user.mention}!",
+                description=(
+                    f"You stole **${format_number(stolen_amount)}** from {user.mention}!\n"
+                    f"({percent_stolen:.2f}% of their balance)"
+                ),
                 color=discord.Color.green(),
             )
         else:
@@ -164,9 +174,15 @@ class Steal(commands.Cog):
                 target_id, lost_amount, StealEventType.VICTIM_FAIL
             )
 
+            percent_lost = lost_amount / thief_balance * 100 if thief_balance > 0 else 0
+
             embed = discord.Embed(
                 title="🚨 Theft Failed!",
-                description=f"You tried to steal from {user.mention} and got caught! You lost **${format_number(lost_amount)}**.",
+                description=(
+                    f"You tried to steal from {user.mention} and got caught! "
+                    f"You lost **${format_number(lost_amount)}**.\n"
+                    f"({percent_lost:.2f}% of your balance)"
+                ),
                 color=discord.Color.red(),
             )
         embed.set_footer(
@@ -183,10 +199,13 @@ class Steal(commands.Cog):
         await interaction.response.defer()
         raw_data = await self.bot.database.steal_db.get_all_steal_stats()
         filtered_data = [
-            row for row in raw_data if interaction.guild.get_member(row["user_id"])
+            row
+            for row in raw_data
+            if (member := interaction.guild.get_member(row["user_id"]))
+            and not member.bot
         ]
 
-        STOLEN_FROM_COOLDOWN = datetime.timedelta(hours=6)
+        STOLEN_FROM_COOLDOWN = datetime.timedelta(hours=3)
 
         stealstatus_data = []
 
@@ -221,7 +240,7 @@ class StealStatusView(discord.ui.View):
             self.next_button.disabled = True
 
     def generate_embed(self) -> discord.Embed:
-        STOLEN_FROM_COOLDOWN = datetime.timedelta(hours=6)
+        STOLEN_FROM_COOLDOWN = datetime.timedelta(hours=3)
 
         start = self.page * self.entries_per_page
         end = start + self.entries_per_page

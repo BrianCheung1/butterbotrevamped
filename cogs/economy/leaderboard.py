@@ -13,7 +13,10 @@ class LeaderboardView(discord.ui.View):
         super().__init__(timeout=60)
         # Filter to only include members still in the guild
         self.data = [
-            row for row in data if interaction.guild.get_member(row["user_id"])
+            row
+            for row in data
+            if (member := interaction.guild.get_member(row["user_id"]))
+            and not member.bot
         ]
         self.leaderboard_type = leaderboard_type
         self.interaction = interaction
