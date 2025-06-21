@@ -166,7 +166,8 @@ CREATE TABLE IF NOT EXISTS movies (
 
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id INTEGER PRIMARY KEY,
-    interest_channel_id INTEGER
+    interest_channel_id INTEGER,
+    patchnotes_channel_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS interactions (
@@ -195,4 +196,13 @@ CREATE TABLE IF NOT EXISTS steam_games (
     added_by_id TEXT,                     -- Discord user ID who added the game
     added_by_name TEXT,                   -- Discord username of the person
     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Patch Notes 
+CREATE TABLE IF NOT EXISTS patch_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    author_id INTEGER,
+    author_name TEXT,
+    changes TEXT, -- stored as a single string with ; delimiter
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

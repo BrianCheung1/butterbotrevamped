@@ -19,8 +19,7 @@ class GuildSettingsDatabaseManager:
         """
         if channel_type not in {
             "interest_channel_id",
-            "log_channel_id",
-            "announcement_channel_id",
+            "patchnotes_channel_id",
         }:
             raise ValueError(f"Invalid channel_type '{channel_type}'")
 
@@ -42,8 +41,7 @@ class GuildSettingsDatabaseManager:
         """
         if channel_type not in {
             "interest_channel_id",
-            "log_channel_id",
-            "announcement_channel_id",
+            "patchnotes_channel_id",
         }:
             raise ValueError(f"Invalid channel_type '{channel_type}'")
 
@@ -77,8 +75,8 @@ class GuildSettingsDatabaseManager:
         """
         if channel_type not in {
             "interest_channel_id",
-            "log_channel_id",
-            "announcement_channel_id",
+            "interest_channel_id",
+            "patchnotes_channel_id",
         }:
             raise ValueError(f"Invalid channel_type '{channel_type}'")
 

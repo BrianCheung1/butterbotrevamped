@@ -6,7 +6,7 @@ from typing import Literal, Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.checks import is_owner_check
+from utils.checks import is_owner_or_mod_check
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 
@@ -14,6 +14,7 @@ DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 class Development(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
+        self.patch_notes = [] 
         bot.tree.on_error = self.on_app_command_error
 
     @app_commands.command(
@@ -21,7 +22,7 @@ class Development(commands.Cog):
         description="Synchonizes the slash commands.",
     )
     @app_commands.describe(scope="The scope of the sync. Can be `global` or `guild`")
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     @app_commands.choices(
         scope=[
             app_commands.Choice(name="Global", value="global"),
@@ -74,7 +75,7 @@ class Development(commands.Cog):
             app_commands.Choice(name="Guild", value="guild"),
         ]
     )
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     @app_commands.guilds(DEV_GUILD_ID)
     async def unsync(
         self, interaction: discord.Interaction, scope: app_commands.Choice[str]
@@ -114,7 +115,7 @@ class Development(commands.Cog):
         description="Load a cog",
     )
     @app_commands.describe(cog="The name of the cog to load")
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     @app_commands.guilds(DEV_GUILD_ID)
     async def load(self, interaction: discord.Interaction, cog: str) -> None:
         """
@@ -141,7 +142,7 @@ class Development(commands.Cog):
         description="Unloads a cog.",
     )
     @app_commands.describe(cog="The name of the cog to unload")
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     @app_commands.guilds(DEV_GUILD_ID)
     async def unload(self, interaction: discord.Interaction, cog: str) -> None:
         """
@@ -165,7 +166,7 @@ class Development(commands.Cog):
 
     @app_commands.command(name="reload", description="Reloads a cog.")
     @app_commands.describe(cog="The name of the cog to reload")
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     @app_commands.guilds(DEV_GUILD_ID)
     async def reload(
         self,
@@ -224,7 +225,7 @@ class Development(commands.Cog):
         name="shutdown",
         description="Make the bot shutdown.",
     )
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     @app_commands.guilds(DEV_GUILD_ID)
     async def shutdown(self, interaction: discord.Interaction) -> None:
         """
@@ -237,7 +238,7 @@ class Development(commands.Cog):
         await self.bot.close()
 
     @app_commands.command(name="stats", description="Show stats of the bot.")
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     async def stats(self, interaction: discord.Interaction):
         """
         Provides statistics about the bot, including latency, uptime, and more.
@@ -334,7 +335,7 @@ class Development(commands.Cog):
         name="debug",
         description="Debug the bot.",
     )
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     @app_commands.checks.cooldown(1, 10.0, key=lambda i: (i.user.id))
     @app_commands.guilds(DEV_GUILD_ID)
     async def debug(self, interaction: discord.Interaction) -> None:
@@ -361,7 +362,7 @@ class Development(commands.Cog):
         name="migrate",
         description="Migrate a user's level data to 25% XP scaling.",
     )
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     @app_commands.guilds(DEV_GUILD_ID)
     async def migrate(
         self, interaction: discord.Interaction, user: discord.User

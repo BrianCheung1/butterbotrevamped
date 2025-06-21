@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from discord import app_commands
 from discord.app_commands import Choice
 from discord.ext import commands
-from utils.checks import is_owner_check
+from utils.checks import is_owner_or_mod_check
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 GAMES = os.getenv("GAMES")
@@ -32,7 +32,7 @@ class Upload(commands.Cog):
             Choice(name="Updated", value="Updated"),
         ]
     )
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     @app_commands.checks.has_permissions(moderate_members=True)
     async def add_game(
         self,

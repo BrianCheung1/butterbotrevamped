@@ -3,7 +3,7 @@ import os
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.checks import is_owner_check
+from utils.checks import is_owner_or_mod_check
 
 
 class GameInfo(commands.Cog):
@@ -27,7 +27,7 @@ class GameInfo(commands.Cog):
 
     @app_commands.command(name="game-info", description="Get details about a game")
     @app_commands.describe(title="The title of the game")
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     @app_commands.autocomplete(title=game_title_autocomplete)
     async def game_info(self, interaction: discord.Interaction, title: str):
         await interaction.response.defer(thinking=True)

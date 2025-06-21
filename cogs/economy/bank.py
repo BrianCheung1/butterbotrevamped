@@ -6,7 +6,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils.balance_helper import calculate_percentage_amount, validate_amount
-from utils.checks import is_owner_check
+from utils.checks import is_owner_or_mod_check
 from utils.formatting import format_number
 
 
@@ -288,7 +288,7 @@ class Bank(commands.Cog):
         name="set-bank-channel",
         description="Set the current channel as the bank announcement channel (admin only).",
     )
-    @app_commands.check(is_owner_check)
+    @app_commands.check(is_owner_or_mod_check)
     async def set_bank_channel(
         self,
         interaction: discord.Interaction,
@@ -304,21 +304,23 @@ class Bank(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.check(is_owner_check)
     @app_commands.command(
         name="remove-bank-channel",
         description="Unset the bank announcement channel (admin only).",
     )
+    @app_commands.check(is_owner_or_mod_check)
     async def remove_bank_channel(self, interaction: discord.Interaction):
-        await self.bot.database.guild_db.remove_channel(
+        removed = await self.bot.database.guild_db.remove_channel(
             guild_id=interaction.guild.id,
             channel_type="interest_channel_id",
         )
 
-        await interaction.response.send_message(
-            "✅ Bank announcement channel has been unset.",
-            ephemeral=True,
-        )
+        if removed:
+            msg = "✅ Bank announcement channel has been unset."
+        else:
+            msg = "ℹ️ Bank announcement channel was not set."
+
+        await interaction.response.send_message(msg, ephemeral=True)
 
 
 async def setup(bot):
