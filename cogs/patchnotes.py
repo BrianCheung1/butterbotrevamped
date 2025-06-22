@@ -4,6 +4,9 @@ import discord
 from datetime import datetime, timezone
 from utils.checks import is_owner_check, is_owner_or_mod_check
 from typing import Optional
+import os
+
+DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 
 
 class PatchNotes(commands.Cog):
@@ -13,6 +16,7 @@ class PatchNotes(commands.Cog):
     @app_commands.command(name="patchnotes", description="Add and display patch notes")
     @app_commands.describe(changes="Separate each change with a ';'")
     @app_commands.check(is_owner_check)
+    @app_commands.guilds(DEV_GUILD_ID)
     async def patchnotes(self, interaction: discord.Interaction, changes: str):
         items = [
             item.strip().capitalize() for item in changes.split(";") if item.strip()
@@ -117,6 +121,7 @@ class PatchNotes(commands.Cog):
     )
     @app_commands.describe(patch_id="The patch note ID to delete")
     @app_commands.check(is_owner_check)
+    @app_commands.guilds(DEV_GUILD_ID)
     async def patchnotes_delete(self, interaction: discord.Interaction, patch_id: int):
         # Check if patch note exists
         note = await self.bot.database.patch_notes_db.get_patch_note_by_id(patch_id)
@@ -140,6 +145,7 @@ class PatchNotes(commands.Cog):
         changes="New patch note changes separated by ';'",
     )
     @app_commands.check(is_owner_check)
+    @app_commands.guilds(DEV_GUILD_ID)
     async def patchnotes_edit(
         self, interaction: discord.Interaction, patch_id: int, changes: str
     ):
