@@ -14,7 +14,6 @@ DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 class Development(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
-        self.patch_notes = [] 
         bot.tree.on_error = self.on_app_command_error
 
     @app_commands.command(

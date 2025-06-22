@@ -1,6 +1,4 @@
 import asyncio
-
-
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -8,11 +6,8 @@ import discord
 from discord import app_commands
 from discord.app_commands import Choice
 from discord.ext import commands
-from utils.valorant_helpers import (
-    convert_to_datetime,
-    fetch_val_api,
-    load_cached_players_from_db,
-)
+from utils.valorant_helpers import (convert_to_datetime, fetch_val_api,
+                                    load_cached_players_from_db)
 
 
 class ValorantMMRHistory(commands.Cog):
