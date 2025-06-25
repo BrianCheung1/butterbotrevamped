@@ -193,6 +193,7 @@ CREATE TABLE IF NOT EXISTS steam_games (
     reviews TEXT,                         -- Steam reviews summary (e.g. 'Very Positive (2,312)')
     app_id TEXT,                          -- Steam App ID
     genres TEXT,                          -- Comma-separated genres
+    categories TEXT,                      -- Comma-separated categories
     added_by_id TEXT,                     -- Discord user ID who added the game
     added_by_name TEXT,                   -- Discord username of the person
     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

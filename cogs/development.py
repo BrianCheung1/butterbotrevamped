@@ -384,6 +384,23 @@ class Development(commands.Cog):
         latency = self.bot.latency * 1000  # convert from seconds to milliseconds
         await interaction.response.send_message(f"Pong! 🏓 Latency: {latency:.2f}ms")
 
+    @app_commands.command(name="invite", description="Get the bot's invite link")
+    async def invite(self, interaction: discord.Interaction):
+        app_info = await self.bot.application_info()
+        invite_url = discord.utils.oauth_url(
+            client_id=app_info.id,
+            permissions=discord.Permissions(
+                administrator=True
+            ),  # Customize perms if needed
+            scopes=("bot", "applications.commands"),
+        )
+        embed = discord.Embed(
+            title="Invite Me!",
+            description=f"[Click here to invite the bot!]({invite_url})",
+            color=discord.Color.blurple(),
+        )
+        await interaction.response.send_message(embed=embed)
+
     @commands.Cog.listener()
     async def on_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError

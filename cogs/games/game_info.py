@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
@@ -73,8 +74,11 @@ class GameInfo(commands.Cog):
         embed.add_field(name="Reviews", value=game["reviews"], inline=True)
         embed.add_field(name="App Id", value=game["app_id"], inline=True)
         embed.add_field(name="Genres", value=game["genres"], inline=False)
+        embed.add_field(name="Categories", value=game["categories"], inline=False)
         embed.set_image(url=game["image"])
-        embed.set_footer(text=f"{game['added_by_name']} • Added", icon_url=None)
+        embed.set_footer(text=f"{game['added_by_name']}", icon_url=None)
+        dt = datetime.fromisoformat(game["added_at"]).replace(tzinfo=timezone.utc)
+        embed.timestamp = dt
 
         await interaction.followup.send(embed=embed)
 

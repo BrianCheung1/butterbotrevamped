@@ -7,7 +7,7 @@ import discord
 def get_cooldown_response(
     last_time_str: str, cooldown: datetime.timedelta, prefix: str
 ) -> str | None:
-    last_time = datetime.datetime.strptime(last_time_str, "%Y-%m-%d %H:%M:%S").replace(
+    last_time = datetime.datetime.fromisoformat(last_time_str).replace(
         tzinfo=timezone.utc
     )
     now = datetime.datetime.now(timezone.utc)

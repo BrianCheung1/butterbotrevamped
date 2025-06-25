@@ -25,6 +25,7 @@ class SteamGamesDatabaseManager:
         reviews: str,
         app_id: str,
         genres: str,
+        categories: str,
         added_by_id: str,
         added_by_name: str,
     ):
@@ -33,8 +34,8 @@ class SteamGamesDatabaseManager:
             """
             INSERT INTO steam_games (
                 title, add_type, download_link, steam_link, description, image,
-                build, notes, price, reviews, app_id, genres, added_by_id, added_by_name
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                build, notes, price, reviews, app_id, genres, categories, added_by_id, added_by_name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(title) DO UPDATE SET
                 add_type=excluded.add_type,
                 download_link=excluded.download_link,
@@ -47,6 +48,7 @@ class SteamGamesDatabaseManager:
                 reviews=excluded.reviews,
                 app_id=excluded.app_id,
                 genres=excluded.genres,
+                categories=excluded.categories,
                 added_by_id=excluded.added_by_id,
                 added_by_name=excluded.added_by_name,
                 added_at=CURRENT_TIMESTAMP
@@ -64,6 +66,7 @@ class SteamGamesDatabaseManager:
                 reviews,
                 app_id,
                 genres,
+                categories,
                 added_by_id,
                 added_by_name,
             ),

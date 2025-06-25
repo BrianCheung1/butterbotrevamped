@@ -1,4 +1,5 @@
 import random
+from datetime import datetime, timezone
 from typing import Optional
 
 import discord
@@ -144,7 +145,6 @@ async def perform_roll(bot, interaction, user_id, amount, action):
     # Fetch last 10 roll results
     history = await bot.database.game_db.get_roll_history(user_id)
 
-    # Format
     if history:
         history_lines = []
         for entry in history:
@@ -153,9 +153,15 @@ async def perform_roll(bot, interaction, user_id, amount, action):
                 if entry["result"] == "win"
                 else "❌" if entry["result"] == "loss" else "➖"
             )
+
+            # Parse SQLite timestamp (stored in UTC)
+            dt = datetime.fromisoformat(entry["timestamp"]).replace(tzinfo=timezone.utc)
+            unix_timestamp = int(dt.timestamp())
+
             history_lines.append(
-                f"{emoji} You: **{entry['user_roll']}**, Dealer: **{entry['dealer_roll']}**, Bet: ${entry['amount']:,}"
+                f"{emoji} Bet: ${entry['amount']:,} — <t:{unix_timestamp}:R>"
             )
+
         embed.add_field(
             name="Last 10 Rolls", value="\n".join(history_lines), inline=False
         )

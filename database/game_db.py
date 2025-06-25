@@ -140,7 +140,7 @@ class GameDatabaseManager:
     async def get_roll_history(self, user_id: int, limit: int = 10) -> list[dict]:
         async with self.connection.execute(
             """
-            SELECT user_roll, dealer_roll, result, amount
+            SELECT user_roll, dealer_roll, result, amount, timestamp
             FROM roll_history
             WHERE user_id = ?
             ORDER BY timestamp DESC
@@ -156,6 +156,7 @@ class GameDatabaseManager:
                 "dealer_roll": row[1],
                 "result": row[2],
                 "amount": row[3],
+                "timestamp": row[4],
             }
             for row in rows
         ]

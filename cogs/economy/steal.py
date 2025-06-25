@@ -50,15 +50,15 @@ class Steal(commands.Cog):
         target_balance = await self.bot.database.user_db.get_balance(target_id)
         thief_balance = await self.bot.database.user_db.get_balance(thief_id)
 
-        if target_balance <= MIN_BALANCE_TO_STEAL:
+        if target_balance < MIN_BALANCE_TO_STEAL:
             await interaction.response.send_message(
-                f"{user.mention} has no money to steal!", ephemeral=True
+                f"{user.mention} has only ${target_balance:,} but needs at least ${MIN_BALANCE_TO_STEAL:,} to be stolen from!",
             )
             return
 
-        if thief_balance <= MIN_BALANCE_TO_STEAL:
+        if thief_balance < MIN_BALANCE_TO_STEAL:
             await interaction.response.send_message(
-                "You have no money to steal!", ephemeral=True
+                f"You have only ${thief_balance:,} but need at least ${MIN_BALANCE_TO_STEAL:,} to steal!",
             )
             return
 

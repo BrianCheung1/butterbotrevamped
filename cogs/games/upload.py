@@ -1,9 +1,10 @@
 import os
+import re
+from datetime import datetime, timezone
 from typing import Optional
 
 import discord
 import requests
-from bs4 import BeautifulSoup
 from discord import app_commands
 from discord.app_commands import Choice
 from discord.ext import commands
@@ -12,6 +13,38 @@ from utils.checks import is_owner_or_mod_check
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 GAMES = os.getenv("GAMES")
 REQUEST_FORM_LINK = "https://forms.gle/d1K2NBLfJBqoSsv59"
+
+
+def extract_app_id(steam_link: str) -> str:
+    match = re.search(r"store\.steampowered\.com/app/(\d+)", steam_link)
+    if match:
+        return match.group(1)
+    raise ValueError("Invalid Steam link: Could not extract AppID")
+
+
+def fetch_steam_app_details(app_id: str) -> dict:
+    url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&cc=us&l=en"
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+    if data.get(app_id, {}).get("success"):
+        return data[app_id]["data"]
+    else:
+        raise ValueError(f"Steam API: No data for AppID {app_id}")
+
+
+def fetch_steam_review_summary(app_id: str) -> str:
+    url = f"https://store.steampowered.com/appreviews/{app_id}?json=1"
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+
+    if data.get("success") == 1:
+        desc = data.get("query_summary", {}).get("review_score_desc")
+        total = data.get("query_summary", {}).get("total_reviews")
+        if desc and total:
+            return f"{desc} ({total:,})"
+    return "N/A"
 
 
 class Upload(commands.Cog):
@@ -46,37 +79,41 @@ class Upload(commands.Cog):
         try:
             await interaction.response.defer(thinking=True)
 
-            response = requests.get(steam_link, timeout=15)
-            soup = BeautifulSoup(response.text, features="html.parser")
+            # Extract AppID and fetch Steam data
+            app_id = extract_app_id(steam_link)
+            steam_data = fetch_steam_app_details(app_id)
 
+            # Extract details
+            title = steam_data.get("name", "Unknown Title")
+            description = steam_data.get(
+                "short_description", "No description available."
+            )
+            image = steam_data.get("header_image", "")
+
+            # Price info
+            price_overview = steam_data.get("price_overview")
+            if price_overview:
+                initial = price_overview["initial"] / 100  # Prices are in cents
+                final = price_overview["final"] / 100
+
+                if price_overview["discount_percent"] > 0:
+                    price = f"~~${initial:.2f}~~\n${final:.2f}"
+                else:
+                    price = f"${final:.2f}"
+            else:
+                price = "Free" if steam_data.get("is_free") else "N/A"
+
+            # Reviews (JSON API only gives total number)
+            reviews = fetch_steam_review_summary(app_id)
+
+            # Genres
             genres = " ".join(
-                f"`{g.contents[0].strip()}`"
-                for i, g in enumerate(soup.find_all(class_="app_tag"))
-                if i < 5 and g.contents[0].strip() != "+"
+                f"`{g['description']}`" for g in steam_data.get("genres", [])[:5]
             )
 
-            title = soup.select_one('div[class="apphub_AppName"]').text.strip()
-            description = soup.find("meta", property="og:description")["content"]
-            image = soup.find("meta", property="og:image")["content"]
-
-            if soup.select_one('div[class="discount_original_price"]'):
-                original_price = soup.select_one(
-                    'div[class="discount_original_price"]'
-                ).text
-                discounted_price = soup.select_one(
-                    'div[class="discount_final_price"]'
-                ).text
-                price = f"~~{original_price}~~\n{discounted_price}"
-            elif soup.select_one('div[class="game_purchase_price price"]'):
-                price = soup.select_one(
-                    'div[class="game_purchase_price price"]'
-                ).text.strip()
-            else:
-                price = "N/A"
-
-            reviews = soup.find("meta", itemprop="reviewCount")["content"]
-            reviews_description = soup.find("span", itemprop="description").text.strip()
-            app_id = soup.find("meta", property="og:url")["content"].split("/")[4]
+            categories = " ".join(
+                f"`{c['description']}`" for c in steam_data.get("categories", [])[:5]
+            )
 
             # Save or update in DB
             await self.bot.database.steam_games_db.upsert_game(
@@ -89,14 +126,15 @@ class Upload(commands.Cog):
                 build=build,
                 notes=notes,
                 price=price,
-                reviews=f"{reviews_description} ({reviews})",
+                reviews=reviews,
                 app_id=app_id,
                 genres=genres,
+                categories=categories,
                 added_by_id=str(interaction.user.id),
                 added_by_name=str(interaction.user),
             )
 
-            # Send embed
+            # Build embed
             embed = discord.Embed(
                 title=f"{add.value} - {title}",
                 color=0x336EFF,
@@ -106,7 +144,9 @@ class Upload(commands.Cog):
                     if build
                     else ""
                 ),
+                timestamp=datetime.now(timezone.utc),
             )
+
             embed.add_field(
                 name="Direct Download Link",
                 value=f"[Click Here]({download_link})",
@@ -128,14 +168,13 @@ class Upload(commands.Cog):
             )
             embed.add_field(name="Notes", value=f"```{notes}```", inline=False)
             embed.add_field(name="Price", value=price, inline=True)
-            embed.add_field(
-                name="Reviews", value=f"{reviews_description} ({reviews})", inline=True
-            )
+            embed.add_field(name="Reviews", value=reviews, inline=True)
             embed.add_field(name="App Id", value=app_id, inline=True)
             embed.add_field(name="Genres", value=genres, inline=False)
+            embed.add_field(name="Categories", value=categories, inline=False)
             embed.set_image(url=image)
             embed.set_footer(
-                text=str(interaction.user), icon_url=interaction.user.display_avatar
+                text=str(interaction.user), icon_url=interaction.user.display_avatar.url
             )
 
             await interaction.followup.send(embed=embed)
