@@ -1,45 +1,54 @@
 # ButterBot Revamped
 
-ButterBot Revamped is a newly updated version of the original ButterBot, designed to provide a smoother, more efficient experience with cleaner code and a revamped database. This bot is packed with a variety of fun and useful features, including economy-based commands, casino games, and better management of bot functionality through improved cog files.
+ButterBot Revamped is a newly updated version of the original ButterBot, designed for a smoother, faster, and more maintainable experience. This bot combines fun economy games, stats tracking, and server management tools, all backed by a modular codebase and a revamped SQLite database.
 
-## Features
+---
 
-- **Economy-based Commands**  
-  Interact with the bot's economy system, earn virtual currency, and use it in various ways.
+## 📨 Invite the Bot
 
-- **Bank System**  
-  Manage your in-game wealth with features for depositing, withdrawing, and checking your balance.
+[👉 Invite Me](https://discord.com/oauth2/authorize?client_id=734971561878093844&scope=bot+applications.commands&permissions=8)
 
-- **Balance Command**  
-  Check your current balance in the virtual economy.
+---
 
-- **Steal Command**  
-  Rob other players for a chance to earn a quick payday or face the consequences of being caught!
+## ✨ Features
 
-- **Casino Games**  
-  Play various casino-style games like Blackjack and Slots with in-game currency, complete with risk/reward mechanics.
+### 🎮 Economy & Games
+- **Economy Commands**: `/balance`, `/bank`, `/daily`, `/steal`, `/roll`, `/shop`, `/stats`
+- **Casino Games**: Play **Blackjack** and **Slots** with your virtual currency.
+- **Fishing & Mining**: Interactive state-based systems with progression, cooldowns, and stats.
+- **Steal Emote Commands**: Steal emotes from other servers
 
-## New and Improved Database
+### 📊 Player Stats & History
+- **Game Stats**: Track stats for your economy activities like mining, fishing, and gambling.
+- **Valorant MMR & Stats**: View your **Valorant MMR history**, **match history**, and **player stats** using your stored Riot ID.
 
-This revamped version uses a new database architecture, ensuring data is stored more efficiently and can be accessed faster. The new database system supports seamless transactions for in-game economy commands and provides stability for users and admins alike.
+### 🛠️ Server Management
+- **Guild Settings Commands**: Let admins set custom announcement channels for different bot events (e.g., patch notes, server updates).
 
-Cleaner and more modular code through the use of enhanced cog files, making it easier to add new features and manage the bot’s functionality.
+### 🎥 Movie Library
+- **Movie Commands**: Add movies to your server's movie list and browse your guild's entire movie catalog.
 
-## Features Breakdown
+### 🕹️ Game Uploads
+- **Steam Game Upload Commands**: Upload and list Steam game information and download links for your guild.
 
-- **Economy System**:  
-  The economy system allows users to gain virtual currency by performing certain actions and completing tasks. Commands like `!balance`, `!steal`, and `!bank` provide an interactive economy experience.
+### 🤖 AI Chatbot
+- **AI Chat Integration**: Chat with an AI directly inside your Discord server.
 
-- **Casino Games**:  
-  Users can participate in various casino games, such as Blackjack and Slots, using their earned virtual currency. Win big or lose it all!
+---
 
-- **Valorant MMR**:  
-  Track player MMR history and performance over time by retrieving stats and match data using stored Riot ID information.
+## 🗃️ Database
 
-- **Cog System**:  
-  The bot's features are divided into modular cogs, making it easier for developers to extend functionality and manage bot commands.
+ButterBot Revamped uses **SQLite** with a clean schema-based table setup. The new database structure ensures faster data access and easier maintenance for developers.
 
-## Installation
+---
+
+## 🧱 Modular Cogs System
+
+Every major feature (economy, casino, games, stats, Valorant, AI chat, movies, etc.) is separated into its own **Cog** for better readability, organization, and future expansion.
+
+---
+
+## Run Your Own Bot
 
 1. Clone the repository:
    ```bash
