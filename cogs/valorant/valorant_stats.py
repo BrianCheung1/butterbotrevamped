@@ -117,11 +117,13 @@ class ValorantStats(commands.Cog):
             for m in competitive_matches
             if "meta" in m and "season" in m["meta"]
         }
+        self.bot.logger.info(season_codes)
 
         if not season_codes:
             return await interaction.followup.send("No season info found in matches.")
 
         latest_season = max(season_codes, key=parse_season)
+        self.bot.logger.info(f"Latest season: {latest_season}")
 
         latest_season_matches = [
             m

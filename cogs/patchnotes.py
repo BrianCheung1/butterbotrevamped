@@ -5,7 +5,8 @@ from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.checks import is_owner_check, is_owner_or_mod_check
+from utils.channels import broadcast_embed_to_guilds
+from utils.checks import is_owner_check
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 
@@ -18,7 +19,12 @@ class PatchNotes(commands.Cog):
     @app_commands.describe(changes="Separate each change with a ';'")
     @app_commands.check(is_owner_check)
     @app_commands.guilds(DEV_GUILD_ID)
-    async def patchnotes(self, interaction: discord.Interaction, changes: str):
+    async def patchnotes(
+        self,
+        interaction: discord.Interaction,
+        changes: str,
+        attachment: Optional[discord.Attachment] = None,
+    ):
         items = [
             item.strip().capitalize() for item in changes.split(";") if item.strip()
         ]
@@ -29,10 +35,16 @@ class PatchNotes(commands.Cog):
             return
 
         formatted = ";".join(items)
-
+        image_url = (
+            attachment.url
+            if attachment
+            and attachment.content_type
+            and attachment.content_type.startswith("image")
+            else None
+        )
         # Add patch note and get its ID
         patch_id = await self.bot.database.patch_notes_db.add_patch_note(
-            interaction.user.id, interaction.user.name, formatted
+            interaction.user.id, interaction.user.name, formatted, image_url
         )
 
         formatted_notes = "\n".join(f"- {change}" for change in items)
@@ -44,29 +56,13 @@ class PatchNotes(commands.Cog):
         )
         embed.set_footer(text=f"By {interaction.user.name}")
 
+        if image_url:
+            embed.set_image(url=image_url)
+
         # Send to the invoking user first
         await interaction.response.send_message(embed=embed)
 
-        # Now broadcast to all guilds that have a patch notes channel set
-        for guild in self.bot.guilds:
-            channel_id = await self.bot.database.guild_db.get_channel(
-                guild.id, "patchnotes_channel_id"
-            )
-            if not channel_id:
-                continue
-
-            channel = guild.get_channel(channel_id)
-            if channel is None:
-                continue
-
-            try:
-                await channel.send(embed=embed)
-            except discord.Forbidden:
-                self.bot.logger.warning(
-                    f"Missing permission to send messages in {channel.name} ({channel.id})"
-                )
-            except discord.HTTPException as e:
-                self.bot.logger.error(f"Failed to send patch notes message: {e}")
+        await broadcast_embed_to_guilds(self.bot, "patchnotes_channel_id", embed)
 
     @app_commands.command(name="patchnotes-view", description="View saved patch notes")
     @app_commands.describe(patch_id="(Optional) Specific patch note ID to view")
@@ -102,6 +98,7 @@ class PatchNotes(commands.Cog):
                 timestamp=timestamp_dt,
             )
             embed.set_footer(text=f"By {entry['author_name']}")
+            embed.set_image(url=entry["image_url"]) if entry["image_url"] else None
 
             await interaction.followup.send(embed=embed)
 
@@ -148,7 +145,11 @@ class PatchNotes(commands.Cog):
     @app_commands.check(is_owner_check)
     @app_commands.guilds(DEV_GUILD_ID)
     async def patchnotes_edit(
-        self, interaction: discord.Interaction, patch_id: int, changes: str
+        self,
+        interaction: discord.Interaction,
+        patch_id: int,
+        changes: str,
+        attachment: Optional[discord.Attachment] = None,
     ):
         note = await self.bot.database.patch_notes_db.get_patch_note_by_id(patch_id)
         if not note:
@@ -167,11 +168,23 @@ class PatchNotes(commands.Cog):
             return
 
         formatted = ";".join(items)
-        await self.bot.database.patch_notes_db.update_patch_note_changes(
-            patch_id, formatted
+
+        # Decide which image_url to save
+        if (
+            attachment
+            and attachment.content_type
+            and attachment.content_type.startswith("image")
+        ):
+            image_url = attachment.url
+        else:
+            # Use previous image_url from DB if no new attachment
+            image_url = note["image_url"]
+
+        # Update patch note with both changes and image_url
+        await self.bot.database.patch_notes_db.update_patch_note_changes_and_image(
+            patch_id, formatted, image_url
         )
 
-        # Fetch the updated note again
         updated_note = await self.bot.database.patch_notes_db.get_patch_note_by_id(
             patch_id
         )
@@ -193,71 +206,14 @@ class PatchNotes(commands.Cog):
         )
         embed.set_footer(text=f"By {updated_note['author_name']}")
 
+        if updated_note["image_url"]:
+            embed.set_image(url=updated_note["image_url"])
+
         await interaction.response.send_message(
             f"Patch note #{patch_id} updated successfully.", embed=embed
         )
 
-        # Broadcast the updated patch note to all guilds with patchnotes channel set
-        for guild in self.bot.guilds:
-            channel_id = await self.bot.database.guild_db.get_channel(
-                guild.id, "patchnotes_channel_id"
-            )
-            if not channel_id:
-                continue
-
-            channel = guild.get_channel(channel_id)
-            if channel is None:
-                continue
-
-            try:
-                await channel.send(embed=embed)
-            except discord.Forbidden:
-                self.bot.logger.warning(
-                    f"Missing permission to send messages in {channel.name} ({channel.id})"
-                )
-            except discord.HTTPException as e:
-                self.bot.logger.error(f"Failed to send patch notes update message: {e}")
-
-    @app_commands.command(
-        name="set-patchnotes-channel",
-        description="Set the current channel as the patch notes announcement channel (admin only).",
-    )
-    @app_commands.check(is_owner_or_mod_check)
-    async def set_patchnotes_channel(
-        self,
-        interaction: discord.Interaction,
-    ):
-        await self.bot.database.guild_db.set_channel(
-            guild_id=interaction.guild.id,
-            channel_type="patchnotes_channel_id",
-            channel_id=interaction.channel.id,
-        )
-
-        await interaction.response.send_message(
-            f"✅ Patch Notes announcement channel has been set to {interaction.channel.mention}.",
-            ephemeral=True,
-        )
-
-    @app_commands.command(
-        name="remove-patchnotes-channel",
-        description="Unset the patch notes announcement channel (admin only).",
-    )
-    @app_commands.check(is_owner_or_mod_check)
-    async def remove_patchnotes_channel(
-        self,
-        interaction: discord.Interaction,
-    ):
-        removed = await self.bot.database.guild_db.remove_channel(
-            guild_id=interaction.guild.id,
-            channel_type="patchnotes_channel_id",
-        )
-
-        if removed:
-            msg = "✅ Patch Notes announcement channel has been unset."
-        else:
-            msg = "ℹ️ Patch Notes announcement channel was not set."
-
-        await interaction.response.send_message(msg, ephemeral=True)
+        await broadcast_embed_to_guilds(self.bot, "patchnotes_channel_id", embed)
 
 
 class PatchNotesView(discord.ui.View):

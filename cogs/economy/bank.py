@@ -1,12 +1,12 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils.balance_helper import calculate_percentage_amount, validate_amount
-from utils.checks import is_owner_or_mod_check
+from utils.channels import broadcast_embed_to_guilds
 from utils.formatting import format_number
 
 
@@ -61,27 +61,13 @@ class Bank(commands.Cog):
 
         # 🔽 Send announcement if bank channel is set
         if self.hours % 24 == 0:
-            for guild in self.bot.guilds:
-                channel_id = await self.bot.database.guild_db.get_channel(
-                    guild.id, "interest_channel_id"
-                )
-                if channel_id is None:
-                    continue
-
-                channel = guild.get_channel(channel_id)
-                if channel is None:
-                    continue
-
-                try:
-                    await channel.send(
-                        f"💸 Interest has been applied to all active bank accounts! ({user_count} users updated)"
-                    )
-                except discord.Forbidden:
-                    self.bot.logger.warning(
-                        f"Missing permission to send messages in {channel.name} ({channel.id})"
-                    )
-                except discord.HTTPException as e:
-                    self.bot.logger.error(f"Failed to send interest message: {e}")
+            embed = discord.Embed(
+                title="💸 Interest has been applied to all active bank accounts!",
+                description=f"A total of {user_count} users have received their interest for the day.",
+                color=discord.Color.green(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            await broadcast_embed_to_guilds(self.bot, "interest_channel_id", embed)
         else:
             self.bot.logger.info(
                 f"💸 Interest has been applied to all active bank accounts! ({user_count} users updated)"
@@ -283,44 +269,6 @@ class Bank(commands.Cog):
             new_wallet=balance + amount_to_withdraw,
         )
         await interaction.edit_original_response(embed=embed)
-
-    @app_commands.command(
-        name="set-bank-channel",
-        description="Set the current channel as the bank announcement channel (admin only).",
-    )
-    @app_commands.check(is_owner_or_mod_check)
-    async def set_bank_channel(
-        self,
-        interaction: discord.Interaction,
-    ):
-        await self.bot.database.guild_db.set_channel(
-            guild_id=interaction.guild.id,
-            channel_type="interest_channel_id",
-            channel_id=interaction.channel.id,
-        )
-
-        await interaction.response.send_message(
-            f"✅ Bank announcement channel has been set to {interaction.channel.mention}.",
-            ephemeral=True,
-        )
-
-    @app_commands.command(
-        name="remove-bank-channel",
-        description="Unset the bank announcement channel (admin only).",
-    )
-    @app_commands.check(is_owner_or_mod_check)
-    async def remove_bank_channel(self, interaction: discord.Interaction):
-        removed = await self.bot.database.guild_db.remove_channel(
-            guild_id=interaction.guild.id,
-            channel_type="interest_channel_id",
-        )
-
-        if removed:
-            msg = "✅ Bank announcement channel has been unset."
-        else:
-            msg = "ℹ️ Bank announcement channel was not set."
-
-        await interaction.response.send_message(msg, ephemeral=True)
 
 
 async def setup(bot):

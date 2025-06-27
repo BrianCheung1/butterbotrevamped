@@ -8,6 +8,7 @@ import requests
 from discord import app_commands
 from discord.app_commands import Choice
 from discord.ext import commands
+from utils.channels import broadcast_embed_to_guilds
 from utils.checks import is_owner_or_mod_check
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
@@ -66,7 +67,7 @@ class Upload(commands.Cog):
         ]
     )
     @app_commands.check(is_owner_or_mod_check)
-    @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.guilds(DEV_GUILD_ID)
     async def add_game(
         self,
         interaction: discord.Interaction,
@@ -114,6 +115,7 @@ class Upload(commands.Cog):
             categories = " ".join(
                 f"`{c['description']}`" for c in steam_data.get("categories", [])[:5]
             )
+            notes = notes.replace(";", "\n") if notes else "No Notes"
 
             # Save or update in DB
             await self.bot.database.steam_games_db.upsert_game(
@@ -176,14 +178,14 @@ class Upload(commands.Cog):
             embed.set_footer(
                 text=str(interaction.user), icon_url=interaction.user.display_avatar.url
             )
-
             await interaction.followup.send(embed=embed)
-
+            await broadcast_embed_to_guilds(self.bot, "steam_games_channel_id", embed)
         except Exception as e:
             await interaction.followup.send(
-                "❌ Failed to add game. Please check your links and try again."
+                "❌ Failed to add game. Please check your links and try again.",
+                ephemeral=True,
             )
-            print(f"Add Game Error: {e}")
+            self.bot.logger.error(f"Add Game Error: {e}", exc_info=True)
 
 
 async def setup(bot):
