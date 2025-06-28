@@ -4,6 +4,8 @@ from typing import Optional
 import aiohttp
 import os
 from logger import setup_logger
+import discord
+from discord.app_commands import Choice
 
 logger = setup_logger("Butterbot")
 
@@ -29,9 +31,28 @@ def get_rank_value(rank_name: str) -> int:
 
 
 def parse_season(season_code: str):
+    roman_map = {
+        "I": 1,
+        "II": 2,
+        "III": 3,
+        "IV": 4,
+        "V": 5,
+        "VI": 6,
+        "VII": 7,
+        "VIII": 8,
+        "IX": 9,
+        "X": 10,
+    }
+
     try:
         episode = int(season_code[1 : season_code.index("a")])
-        act = int(season_code[season_code.index("a") + 1 :])
+        act_part = season_code[season_code.index("a") + 1 :]
+
+        try:
+            act = int(act_part)
+        except ValueError:
+            act = roman_map.get(act_part.upper(), 0)
+
         return (episode, act)
     except Exception:
         return (0, 0)
@@ -68,3 +89,44 @@ async def fetch_val_api(url: str, name: str, tag: str) -> Optional[dict]:
             f"Exception while fetching data for {name}#{tag} from URL: {url} - Error: {e}"
         )
     return None
+
+
+async def get_player_mmr(name: str, tag: str, region: str) -> Optional[dict]:
+    url = f"https://api.henrikdev.xyz/valorant/v3/mmr/{region}/pc/{name}/{tag}"
+    return await fetch_val_api(url, name, tag)
+
+
+def get_name_autocomplete(bot):
+
+    async def name_autocomplete(interaction: discord.Interaction, current: str):
+        if not bot.valorant_players:
+            return []
+
+        unique_names = sorted(
+            set(
+                name
+                for name, _ in bot.valorant_players.keys()
+                if name.startswith(current.lower())
+            )
+        )
+        return [Choice(name=n, value=n) for n in unique_names[:25]]
+
+    return name_autocomplete
+
+
+def get_tag_autocomplete(bot):
+    async def tag_autocomplete(interaction: discord.Interaction, current: str):
+        name = interaction.namespace.name  # The selected name
+        if not bot.valorant_players:
+            return []
+
+        filtered_tags = sorted(
+            {
+                tag
+                for n, tag in bot.valorant_players.keys()
+                if n.lower() == name.lower() and tag.startswith(current.lower())
+            }
+        )
+        return [Choice(name=t, value=t) for t in filtered_tags[:25]]
+
+    return tag_autocomplete

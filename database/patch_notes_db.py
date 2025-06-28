@@ -2,6 +2,7 @@ import aiosqlite
 
 from logger import setup_logger
 from utils.database_errors import db_error_handler
+from typing import Optional
 
 logger = setup_logger("PatchNotesDatabaseManager")
 
@@ -12,15 +13,21 @@ class PatchNotesDatabaseManager:
 
     @db_error_handler
     async def add_patch_note(
-        self, author_id: int, author_name: str, changes: str
+        self,
+        author_id: int,
+        author_name: str,
+        changes: str,
+        image_url: str | None = None,
     ) -> int:
         query = """
-        INSERT INTO patch_notes (author_id, author_name, changes)
-        VALUES (?, ?, ?)
+        INSERT INTO patch_notes (author_id, author_name, changes, image_url)
+        VALUES (?, ?, ?, ?)
         """
-        cursor = await self.connection.execute(query, (author_id, author_name, changes))
+        cursor = await self.connection.execute(
+            query, (author_id, author_name, changes, image_url)
+        )
         await self.connection.commit()
-        return cursor.lastrowid  # ✅ Return the patch number
+        return cursor.lastrowid
 
     @db_error_handler
     async def get_all_patch_notes(self) -> list[dict]:
@@ -53,7 +60,9 @@ class PatchNotesDatabaseManager:
         await self.connection.commit()
 
     @db_error_handler
-    async def update_patch_note_changes(self, patch_id: int, changes: str):
-        query = "UPDATE patch_notes SET changes = ? WHERE id = ?"
-        await self.connection.execute(query, (changes, patch_id))
+    async def update_patch_note_changes_and_image(
+        self, patch_id: int, changes: str, image_url: Optional[str] = None
+    ):
+        query = "UPDATE patch_notes SET changes = ?, image_url = ? WHERE id = ?"
+        await self.connection.execute(query, (changes, image_url, patch_id))
         await self.connection.commit()

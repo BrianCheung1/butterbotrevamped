@@ -20,6 +20,7 @@ class GuildSettingsDatabaseManager:
         if channel_type not in {
             "interest_channel_id",
             "patchnotes_channel_id",
+            "steam_games_channel_id",
         }:
             raise ValueError(f"Invalid channel_type '{channel_type}'")
 
@@ -42,6 +43,7 @@ class GuildSettingsDatabaseManager:
         if channel_type not in {
             "interest_channel_id",
             "patchnotes_channel_id",
+            "steam_games_channel_id",
         }:
             raise ValueError(f"Invalid channel_type '{channel_type}'")
 
@@ -69,23 +71,26 @@ class GuildSettingsDatabaseManager:
         return dict(zip(column_names, row))
 
     @db_error_handler
-    async def remove_channel(self, guild_id: int, channel_type: str) -> None:
+    async def remove_channel(self, guild_id: int, channel_type: str) -> bool:
         """
         Remove (unset) the channel of the specified type for the guild by setting it to NULL.
+        Returns True if a row was updated, False if not.
         """
         if channel_type not in {
             "interest_channel_id",
-            "interest_channel_id",
             "patchnotes_channel_id",
+            "steam_games_channel_id",
         }:
             raise ValueError(f"Invalid channel_type '{channel_type}'")
 
-        await self.connection.execute(
+        cursor = await self.connection.execute(
             f"""
             UPDATE guild_settings
             SET {channel_type} = NULL
-            WHERE guild_id = ?
+            WHERE guild_id = ? AND {channel_type} IS NOT NULL
             """,
             (guild_id,),
         )
         await self.connection.commit()
+
+        return cursor.rowcount > 0

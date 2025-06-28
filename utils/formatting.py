@@ -15,4 +15,3 @@ def format_number(n: int | float) -> str:
     elif n >= 1_000:
         return format_suffix(n / 1_000, "K")
     return str(n)
-

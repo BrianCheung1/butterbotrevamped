@@ -167,7 +167,8 @@ CREATE TABLE IF NOT EXISTS movies (
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id INTEGER PRIMARY KEY,
     interest_channel_id INTEGER,
-    patchnotes_channel_id INTEGER
+    patchnotes_channel_id INTEGER,
+    steam_games_channel_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS interactions (

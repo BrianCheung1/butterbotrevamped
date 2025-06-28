@@ -6,8 +6,7 @@ import discord
 from discord import app_commands
 from discord.app_commands import Choice
 from discord.ext import commands, tasks
-from utils.valorant_helpers import (fetch_val_api, get_rank_value,
-                                    load_cached_players_from_db)
+from utils.valorant_helpers import get_player_mmr, get_rank_value
 
 
 class ValorantLeaderboard(commands.Cog):
@@ -17,11 +16,6 @@ class ValorantLeaderboard(commands.Cog):
         self.bot = bot
         self.rate_semaphore = asyncio.Semaphore(5)
         self.periodic_mmr_update_loop.start()
-
-    async def cog_load(self):
-        self.bot.valorant_players = await load_cached_players_from_db(
-            self.bot.database.players_db
-        )
 
     async def cog_unload(self):
         self.periodic_mmr_update_loop.cancel()
@@ -40,6 +34,9 @@ class ValorantLeaderboard(commands.Cog):
 
         for i in range(0, len(players), 5):
             batch = players[i : i + 5]
+            self.bot.logger.info(
+                f"Processing players {i + 1}-{min(i + len(batch), len(players))} out of {len(players)}"
+            )
 
             # Filter only players whose last update was more than 10 minutes ago
             eligible_batch = []
@@ -109,7 +106,8 @@ class ValorantLeaderboard(commands.Cog):
                             f"Failed to update DB for {name}#{tag}: {e}"
                         )
 
-            await asyncio.sleep(60)  # Wait 60s between batches
+            if eligible_batch:
+                await asyncio.sleep(60)  # Wait 60s between batches
 
         # Log the results
         self.bot.logger.info(
@@ -126,20 +124,22 @@ class ValorantLeaderboard(commands.Cog):
 
     async def fetch_player_mmr(self, name: str, tag: str, region: str = "na"):
         async with self.rate_semaphore:
-            data = await self.get_player_mmr(name.lower(), tag.lower(), region)
+            data = await get_player_mmr(name.lower(), tag.lower(), region)
             if data and "data" in data:
                 current = data["data"].get("current", {})
-                rank = current.get("tier", {}).get("name", "Unknown")
-                elo = current.get("rr", 0)
-                return {"name": name, "tag": tag, "rank": rank, "elo": elo}
-        return None
 
-    async def get_player_mmr(self, name: str, tag: str, region: str) -> Optional[dict]:
-        return await fetch_val_api(
-            f"https://api.henrikdev.xyz/valorant/v3/mmr/{region}/pc/{name}/{tag}",
-            name,
-            tag,
-        )
+                games_needed = current.get("games_needed_for_rating", 0)
+                if games_needed > 0:
+                    # Still in placements → force Unrated
+                    rank = "Unrated"
+                    elo = 0
+                else:
+                    rank = current.get("tier", {}).get("name", "Unknown")
+                    elo = current.get("rr", 0)
+
+                return {"name": name, "tag": tag, "rank": rank, "elo": elo}
+
+        return None
 
     async def name_autocomplete(self, interaction: discord.Interaction, current: str):
         if not self.bot.valorant_players:
@@ -192,6 +192,7 @@ class ValorantLeaderboard(commands.Cog):
                 "elo": p["elo"],
             }
             for (n, t), p in self.bot.valorant_players.items()
+            if p["rank"].lower() != "unrated"  # Skip Unrated players
         ]
 
         # Sort from best to worst

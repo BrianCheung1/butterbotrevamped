@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.app_commands import Choice
 from discord.ext import commands
 from utils.valorant_helpers import (convert_to_datetime, fetch_val_api,
-                                    load_cached_players_from_db, parse_season)
+                                    parse_season)
 
 
 class ValorantStats(commands.Cog):
@@ -16,11 +16,6 @@ class ValorantStats(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.cached_stats = {}
-
-    async def cog_load(self):
-        self.bot.valorant_players = await load_cached_players_from_db(
-            self.bot.database.players_db
-        )
 
     async def get_player_match_history(
         self, name: str, tag: str, region: str

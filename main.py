@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 from database import DatabaseManager
 from logger import setup_logger
+from utils.valorant_helpers import load_cached_players_from_db
 
 # Load environment variables from .env file
 load_dotenv()
@@ -69,6 +70,9 @@ class MyBot(commands.Bot):
             connection=await aiosqlite.connect(
                 f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
             )
+        )
+        self.valorant_players = await load_cached_players_from_db(
+            self.database.players_db
         )
         await self.load_cogs()
         await self.tree.sync()
