@@ -10,6 +10,8 @@ class Equip(commands.Cog):
 
     @app_commands.command(name="equip", description="Equip a tool from your inventory")
     @app_commands.describe(tool_name="The name of the tool to equip")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def equip(self, interaction: discord.Interaction, tool_name: str):
         user_id = interaction.user.id
         inventory_manager = self.bot.database.inventory_db

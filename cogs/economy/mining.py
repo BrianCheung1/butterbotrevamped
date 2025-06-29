@@ -171,13 +171,11 @@ class MineAgainView(discord.ui.View):
 
     async def on_timeout(self):
         self.active_mining_sessions.pop(self.user_id, None)
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
+        # Clear buttons by setting view=None and remove embed by embed=None
         if hasattr(self, "message_id") and self.channel:
             try:
                 message = await self.channel.fetch_message(self.message_id)
-                await message.edit(content="Button timed out", view=self)
+                await message.edit(content="Mining timed out", embed=None, view=None)
             except discord.HTTPException:
                 self.bot.logger.error("Mining message expired or missing")
 
@@ -305,6 +303,8 @@ class Mining(commands.Cog):
         self.failures = {}
 
     @app_commands.command(name="mine", description="Mine ores for money")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def mine(self, interaction: discord.Interaction):
         """
         Command to perform mining and get a random item with its value.

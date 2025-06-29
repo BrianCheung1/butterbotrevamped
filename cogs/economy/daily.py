@@ -12,6 +12,8 @@ class Daily(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="daily", description="Claim your daily reward.")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def daily(self, interaction: discord.Interaction) -> None:
         user = interaction.user
         daily_streak, last_daily_at = await self.bot.database.user_db.get_daily(user.id)

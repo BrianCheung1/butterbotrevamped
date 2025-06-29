@@ -30,6 +30,8 @@ class GameInfo(commands.Cog):
     @app_commands.describe(title="The title of the game")
     @app_commands.check(is_owner_or_mod_check)
     @app_commands.autocomplete(title=game_title_autocomplete)
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def game_info(self, interaction: discord.Interaction, title: str):
         await interaction.response.defer(thinking=True)
 

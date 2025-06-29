@@ -139,6 +139,8 @@ class Blackjack(commands.Cog):
             app_commands.Choice(name="25%", value="25%"),
         ]
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def blackjack(
         self,
         interaction: discord.Interaction,

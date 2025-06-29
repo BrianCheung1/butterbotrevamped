@@ -12,6 +12,8 @@ class GameStats(commands.Cog):
         name="game-stats",
         description="Check your game stats or someone else's.",
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def game_stats(
         self, interaction: discord.Interaction, user: discord.User = None
     ) -> None:

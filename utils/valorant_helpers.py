@@ -3,14 +3,10 @@ from constants.valorant_config import RANK_ORDER
 from typing import Optional
 import aiohttp
 import os
+import asyncio
 from logger import setup_logger
-import discord
-from discord.app_commands import Choice
 
 logger = setup_logger("Butterbot")
-
-
-VAL_KEY = os.getenv("VAL_KEY")
 
 
 def convert_to_datetime(date_str: str) -> datetime:
@@ -66,67 +62,51 @@ async def load_cached_players_from_db(db):
 
 
 async def fetch_val_api(url: str, name: str, tag: str) -> Optional[dict]:
-    """Handles API requests to HenrikDev API asynchronously using aiohttp."""
+    """Handles API requests to HenrikDev API asynchronously using aiohttp, with 429 rate limit handling."""
+    VAL_KEY = os.getenv("VAL_KEY")
     if not VAL_KEY:
         logger.error("VAL_KEY is not set in environment variables.")
         return None
 
     headers = {"Authorization": VAL_KEY}
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as response:
                 if response.status == 200:
-                    logger.info(
-                        f"Successfully fetched data for {name}#{tag} from URL: {url}"
-                    )
+                    logger.info(f"✅ Fetched data for {name}#{tag} from URL: {url}")
                     return await response.json()
+
+                elif response.status == 429:
+                    logger.info(response.headers)
+                    retry_after = response.headers.get("Retry-After")
+                    logger.warning(
+                        f"⚠️ Rate limited when fetching {name}#{tag}. HTTP 429. "
+                        f"Retry-After: {retry_after} seconds."
+                    )
+                    if retry_after:
+                        try:
+                            wait_time = float(retry_after)
+                            logger.info(
+                                f"Waiting {wait_time} seconds before retrying..."
+                            )
+                            await asyncio.sleep(wait_time)
+                            # Optional: Retry once after waiting
+                            return await fetch_val_api(url, name, tag)
+                        except ValueError:
+                            logger.warning("Invalid Retry-After header value.")
+
                 else:
                     logger.warning(
-                        f"Failed to fetch data for {name}#{tag} from URL: {url} - HTTP Status: {response.status}"
+                        f"❌ Failed to fetch {name}#{tag} - HTTP {response.status} - URL: {url}"
                     )
+
     except Exception as e:
-        logger.error(
-            f"Exception while fetching data for {name}#{tag} from URL: {url} - Error: {e}"
-        )
+        logger.error(f"❌ Exception while fetching {name}#{tag} from {url}: {e}")
+
     return None
 
 
 async def get_player_mmr(name: str, tag: str, region: str) -> Optional[dict]:
     url = f"https://api.henrikdev.xyz/valorant/v3/mmr/{region}/pc/{name}/{tag}"
     return await fetch_val_api(url, name, tag)
-
-
-def get_name_autocomplete(bot):
-
-    async def name_autocomplete(interaction: discord.Interaction, current: str):
-        if not bot.valorant_players:
-            return []
-
-        unique_names = sorted(
-            set(
-                name
-                for name, _ in bot.valorant_players.keys()
-                if name.startswith(current.lower())
-            )
-        )
-        return [Choice(name=n, value=n) for n in unique_names[:25]]
-
-    return name_autocomplete
-
-
-def get_tag_autocomplete(bot):
-    async def tag_autocomplete(interaction: discord.Interaction, current: str):
-        name = interaction.namespace.name  # The selected name
-        if not bot.valorant_players:
-            return []
-
-        filtered_tags = sorted(
-            {
-                tag
-                for n, tag in bot.valorant_players.keys()
-                if n.lower() == name.lower() and tag.startswith(current.lower())
-            }
-        )
-        return [Choice(name=t, value=t) for t in filtered_tags[:25]]
-
-    return tag_autocomplete

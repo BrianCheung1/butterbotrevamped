@@ -14,7 +14,7 @@ class AI(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        if message.author.bot or not message.guild:
+        if message.author.bot:
             return
 
         if self.bot.user in message.mentions:
@@ -28,8 +28,7 @@ class AI(commands.Cog):
                 await self.bot.database.ai_db.log_interaction(
                     message.author.id, user_input, response
                 )
-
-                await generating_msg.delete()  # Remove the "Generating..." message
+                await generating_msg.delete()
 
                 def smart_chunk(text, max_length=2000):
                     return textwrap.wrap(
@@ -42,14 +41,19 @@ class AI(commands.Cog):
                 chunks = smart_chunk(response)
                 for chunk in chunks:
                     await message.channel.send(chunk)
-
             else:
                 await message.reply(
                     "Hello! Mention me with a message, and I'll respond!"
                 )
 
+        # ✅ Log both DMs and guild messages
+        if message.guild:
+            location = f"[{message.guild.name}][{message.channel.name}]"
+        else:
+            location = "[DM]"
+
         self.bot.logger.info(
-            f"[{message.guild.name}][{message.channel.name}][{datetime.now().strftime('%I:%M:%S:%p')}] "
+            f"{location}[{datetime.now().strftime('%I:%M:%S:%p')}] "
             f"{message.author}: {message.content}"
         )
 

@@ -25,6 +25,8 @@ class Roll(commands.Cog):
             app_commands.Choice(name="25%", value="25%"),
         ]
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def roll(
         self,
         interaction: discord.Interaction,
@@ -179,11 +181,10 @@ class RollAgainView(discord.ui.View):
         self.action = action
 
     async def on_timeout(self):
-        for child in self.children:
-            if isinstance(child, discord.ui.Button):
-                child.disabled = True
         try:
-            await self.message.edit(view=self)
+            await self.message.edit(
+                content="Roll game timed out.", embed=None, view=None
+            )
         except discord.NotFound:
             self.bot.logger.debug("Message not found when disabling buttons.")
             pass

@@ -194,13 +194,10 @@ class FishAgainView(discord.ui.View):
 
     async def on_timeout(self):
         self.active_fishing_sessions.pop(self.user_id, None)
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
         if hasattr(self, "message_id") and self.channel:
             try:
                 message = await self.channel.fetch_message(self.message_id)
-                await message.edit(content="Button timed out", view=self)
+                await message.edit(content="Fishing timed out", embed=None, view=None)
             except discord.HTTPException:
                 self.bot.logger.error("Fishing message expired or missing")
 
@@ -325,6 +322,8 @@ class Fishing(commands.Cog):
         self.failures = {}
 
     @app_commands.command(name="fish", description="Fish for money")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def fish(self, interaction: discord.Interaction):
         if interaction.user.id in self.active_fishing_sessions:
             previous_message = self.active_fishing_sessions[interaction.user.id]

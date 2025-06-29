@@ -48,6 +48,8 @@ class Help(commands.Cog):
     @app_commands.command(
         name="help", description="List all commands grouped by category"
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def help_command(self, interaction: discord.Interaction):
         grouped_commands = defaultdict(list)
         for cmd in self.bot.tree.walk_commands():

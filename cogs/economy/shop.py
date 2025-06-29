@@ -21,6 +21,8 @@ class Shop(commands.Cog):
             for key, data in get_all_shop_items()
         ]
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def shop(
         self, interaction: discord.Interaction, item: app_commands.Choice[str] = None
     ):

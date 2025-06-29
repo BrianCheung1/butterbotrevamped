@@ -13,6 +13,8 @@ class WorkStats(commands.Cog):
         name="work-stats",
         description="Check your work stats or someone else's.",
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def work_stats(
         self, interaction: discord.Interaction, user: discord.User = None
     ) -> None:

@@ -58,6 +58,8 @@ class ValorantStats(commands.Cog):
         name="Player's username", tag="Player's tag", region="Region (e.g., na, eu)"
     )
     @app_commands.autocomplete(name=name_autocomplete, tag=tag_autocomplete)
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def valorant_stats(
         self,
         interaction: discord.Interaction,
