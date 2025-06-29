@@ -5,6 +5,8 @@ import aiohttp
 import os
 import asyncio
 from logger import setup_logger
+import discord
+from discord.app_commands import Choice
 
 logger = setup_logger("Butterbot")
 
@@ -110,3 +112,38 @@ async def fetch_val_api(url: str, name: str, tag: str) -> Optional[dict]:
 async def get_player_mmr(name: str, tag: str, region: str) -> Optional[dict]:
     url = f"https://api.henrikdev.xyz/valorant/v3/mmr/{region}/pc/{name}/{tag}"
     return await fetch_val_api(url, name, tag)
+
+
+async def name_autocomplete(interaction: discord.Interaction, current: str):
+    bot = interaction.client
+    if not hasattr(bot, "valorant_players") or not bot.valorant_players:
+        return []
+
+    unique_names = sorted(
+        set(
+            name
+            for name, tag in bot.valorant_players.keys()
+            if name.lower().startswith(current.lower())
+        )
+    )
+    return [Choice(name=n, value=n) for n in unique_names[:25]]
+
+
+async def tag_autocomplete(interaction: discord.Interaction, current: str):
+    bot = interaction.client
+    name = interaction.namespace.name  # what user selected for "name"
+
+    if not hasattr(bot, "valorant_players") or not bot.valorant_players:
+        return []
+
+    if not name:  # If no name is selected yet
+        return []
+
+    filtered_tags = sorted(
+        {
+            tag
+            for n, tag in bot.valorant_players.keys()
+            if n.lower() == name.lower() and tag.lower().startswith(current.lower())
+        }
+    )
+    return [Choice(name=t, value=t) for t in filtered_tags[:25]]

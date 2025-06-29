@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-MODULES_PER_PAGE = 2  # You can change this to fit your layout better
+MODULES_PER_PAGE = 1  # You can change this to fit your layout better
 
 
 class HelpView(discord.ui.View):

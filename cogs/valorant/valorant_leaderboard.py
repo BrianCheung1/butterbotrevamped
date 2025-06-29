@@ -4,9 +4,9 @@ from typing import List, Optional
 
 import discord
 from discord import app_commands
-from discord.app_commands import Choice
 from discord.ext import commands, tasks
-from utils.valorant_helpers import get_player_mmr, get_rank_value
+from utils.valorant_helpers import (get_player_mmr, get_rank_value,
+                                    name_autocomplete, tag_autocomplete)
 
 
 class ValorantLeaderboard(commands.Cog):
@@ -140,33 +140,6 @@ class ValorantLeaderboard(commands.Cog):
                 return {"name": name, "tag": tag, "rank": rank, "elo": elo}
 
         return None
-
-    async def name_autocomplete(self, interaction: discord.Interaction, current: str):
-        if not self.bot.valorant_players:
-            return []
-
-        unique_names = sorted(
-            set(
-                name
-                for name, _ in self.bot.valorant_players.keys()
-                if name.startswith(current.lower())
-            )
-        )
-        return [Choice(name=n, value=n) for n in unique_names[:25]]
-
-    async def tag_autocomplete(self, interaction: discord.Interaction, current: str):
-        name = interaction.namespace.name  # what user selected for "name"
-        if not self.bot.valorant_players:
-            return []
-
-        filtered_tags = sorted(
-            {
-                tag
-                for n, tag in self.bot.valorant_players.keys()
-                if n.lower() == name.lower() and tag.startswith(current.lower())
-            }
-        )
-        return [Choice(name=t, value=t) for t in filtered_tags[:25]]
 
     @app_commands.command(
         name="valorant-leaderboard", description="View the Valorant leaderboard."

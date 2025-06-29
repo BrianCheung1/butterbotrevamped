@@ -1,13 +1,13 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.app_commands import Choice
 from discord.ext import commands
 from utils.valorant_helpers import (convert_to_datetime, fetch_val_api,
-                                    get_player_mmr)
+                                    get_player_mmr, name_autocomplete,
+                                    tag_autocomplete)
 
 
 class ValorantMMRHistory(commands.Cog):
@@ -31,39 +31,6 @@ class ValorantMMRHistory(commands.Cog):
     async def get_player_mmr(self, name: str, tag: str, region: str) -> Optional[dict]:
         url = f"https://api.henrikdev.xyz/valorant/v3/mmr/{region}/pc/{name}/{tag}"
         return await fetch_val_api(url, name, tag)
-
-    async def name_autocomplete(
-        self, interaction: discord.Interaction, current: str
-    ) -> List[Choice[str]]:
-        if not getattr(self.bot, "valorant_players", None):
-            return []
-
-        current_lower = current.lower()
-        unique_names = sorted(
-            {
-                name
-                for name, _ in self.bot.valorant_players.keys()
-                if name.startswith(current_lower)
-            }
-        )
-        return [Choice(name=n, value=n) for n in unique_names[:25]]
-
-    async def tag_autocomplete(
-        self, interaction: discord.Interaction, current: str
-    ) -> List[Choice[str]]:
-        name = getattr(interaction.namespace, "name", "").lower()
-        if not getattr(self.bot, "valorant_players", None):
-            return []
-
-        current_lower = current.lower()
-        filtered_tags = sorted(
-            {
-                tag
-                for n, tag in self.bot.valorant_players.keys()
-                if n.lower() == name and tag.startswith(current_lower)
-            }
-        )
-        return [Choice(name=t, value=t) for t in filtered_tags[:25]]
 
     def _get_cached_player_data(self, cache_key, now):
         cached = self.bot.valorant_players.get(cache_key)
