@@ -1,4 +1,5 @@
 from typing import Optional
+
 import aiosqlite
 from logger import setup_logger
 from utils.database_errors import db_error_handler

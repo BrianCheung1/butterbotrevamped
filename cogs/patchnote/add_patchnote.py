@@ -7,6 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 from utils.channels import broadcast_embed_to_guilds
 from utils.checks import is_owner_check
+from utils.formatting import clean_patchnotes
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 
@@ -25,16 +26,15 @@ class AddPatchNote(commands.Cog):
         changes: str,
         attachment: Optional[discord.Attachment] = None,
     ):
-        items = [
-            item.strip().capitalize() for item in changes.split(";") if item.strip()
-        ]
-        if not items:
+        # ✅ Clean and format changes
+        db_formatted, embed_formatted = clean_patchnotes(changes)
+        if not db_formatted:
             await interaction.response.send_message(
                 "No valid changes provided.", ephemeral=True
             )
             return
 
-        formatted = ";".join(items)
+        # ✅ Handle image
         image_url = (
             attachment.url
             if attachment
@@ -42,15 +42,16 @@ class AddPatchNote(commands.Cog):
             and attachment.content_type.startswith("image")
             else None
         )
-        # Add patch note and get its ID
+
+        # ✅ Save to DB
         patch_id = await self.bot.database.patch_notes_db.add_patch_note(
-            interaction.user.id, interaction.user.name, formatted, image_url
+            interaction.user.id, interaction.user.name, db_formatted, image_url
         )
 
-        formatted_notes = "\n".join(f"- {change}" for change in items)
+        # ✅ Build embed
         embed = discord.Embed(
             title=f"🛠️ Patch Notes #{patch_id}",
-            description=formatted_notes,
+            description=embed_formatted,
             color=discord.Color.green(),
             timestamp=datetime.now(timezone.utc),
         )
@@ -59,9 +60,8 @@ class AddPatchNote(commands.Cog):
         if image_url:
             embed.set_image(url=image_url)
 
-        # Send to the invoking user first
+        # ✅ Send
         await interaction.response.send_message(embed=embed)
-
         await broadcast_embed_to_guilds(self.bot, "patchnotes_channel_id", embed)
 
 

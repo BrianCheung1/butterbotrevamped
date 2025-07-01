@@ -182,9 +182,7 @@ class RollAgainView(discord.ui.View):
 
     async def on_timeout(self):
         try:
-            await self.message.edit(
-                content="Roll game timed out.", embed=None, view=None
-            )
+            await self.message.edit(content="Roll game timed out.", view=None)
         except discord.NotFound:
             self.bot.logger.debug("Message not found when disabling buttons.")
             pass

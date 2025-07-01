@@ -48,6 +48,19 @@ def fetch_steam_review_summary(app_id: str) -> str:
     return "N/A"
 
 
+def clean_notes(notes: Optional[str]) -> str:
+    if not notes:
+        return "No Notes"
+
+    parts = [note.strip() for note in notes.split(";") if note.strip()]
+    if not parts:
+        return "No Notes"
+
+    # Format as bullet points inside code block
+    formatted = "\n".join(f"- {note}" for note in parts)
+    return formatted
+
+
 class Upload(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -115,7 +128,7 @@ class Upload(commands.Cog):
             categories = " ".join(
                 f"`{c['description']}`" for c in steam_data.get("categories", [])[:5]
             )
-            notes = notes.replace(";", "\n") if notes else "No Notes"
+            notes = notes = clean_notes(notes)
 
             # Save or update in DB
             await self.bot.database.steam_games_db.upsert_game(

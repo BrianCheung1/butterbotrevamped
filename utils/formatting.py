@@ -15,3 +15,21 @@ def format_number(n: int | float) -> str:
     elif n >= 1_000:
         return format_suffix(n / 1_000, "K")
     return str(n)
+
+
+def clean_patchnotes(raw_changes: str) -> tuple[str, str]:
+    """
+    Cleans semicolon-separated patch notes.
+
+    Returns:
+        - String formatted for DB storage (semicolon-joined, capitalized)
+        - String formatted for embed (bullet point list)
+    """
+    items = [
+        item.strip().capitalize() for item in raw_changes.split(";") if item.strip()
+    ]
+    if not items:
+        return "", ""
+    db_formatted = ";".join(items)
+    embed_formatted = "\n".join(f"- {item}" for item in items)
+    return db_formatted, embed_formatted

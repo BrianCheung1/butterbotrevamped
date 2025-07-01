@@ -136,7 +136,8 @@ CREATE TABLE IF NOT EXISTS user_buffs (
     user_id INTEGER,
     buff_type TEXT NOT NULL,             
     multiplier REAL NOT NULL DEFAULT 1,  
-    expires_at TIMESTAMP NOT NULL,       
+    expires_at TIMESTAMP,       
+    uses_left INTEGER DEFAULT NULL,
     PRIMARY KEY (user_id, buff_type),
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );

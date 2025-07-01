@@ -1,7 +1,6 @@
 import datetime
 
 import aiosqlite
-
 from constants.steal_config import StealEventType
 from logger import setup_logger
 from utils.database_errors import db_error_handler

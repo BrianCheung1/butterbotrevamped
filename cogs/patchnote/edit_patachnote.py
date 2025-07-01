@@ -7,6 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 from utils.channels import broadcast_embed_to_guilds
 from utils.checks import is_owner_check
+from utils.formatting import clean_patchnotes
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 
@@ -38,18 +39,15 @@ class EditPatchNote(commands.Cog):
             )
             return
 
-        items = [
-            item.strip().capitalize() for item in changes.split(";") if item.strip()
-        ]
-        if not items:
+        # ✅ Clean changes
+        db_formatted, embed_formatted = clean_patchnotes(changes)
+        if not db_formatted:
             await interaction.response.send_message(
                 "No valid changes provided.", ephemeral=True
             )
             return
 
-        formatted = ";".join(items)
-
-        # Decide which image_url to save
+        # ✅ Decide image url
         if (
             attachment
             and attachment.content_type
@@ -57,30 +55,26 @@ class EditPatchNote(commands.Cog):
         ):
             image_url = attachment.url
         else:
-            # Use previous image_url from DB if no new attachment
-            image_url = note["image_url"]
+            image_url = note["image_url"]  # Keep previous image if none uploaded
 
-        # Update patch note with both changes and image_url
+        # ✅ Update in DB
         await self.bot.database.patch_notes_db.update_patch_note_changes_and_image(
-            patch_id, formatted, image_url
+            patch_id, db_formatted, image_url
         )
 
         updated_note = await self.bot.database.patch_notes_db.get_patch_note_by_id(
             patch_id
         )
 
-        changes_display = "\n".join(
-            f"- {item.strip().capitalize()}"
-            for item in updated_note["changes"].split(";")
-            if item.strip()
-        )
+        # ✅ Parse timestamp
         timestamp_dt = datetime.fromisoformat(updated_note["timestamp"]).replace(
             tzinfo=timezone.utc
         )
 
+        # ✅ Build embed
         embed = discord.Embed(
             title=f"🛠️ Patch #{updated_note['id']} Notes (Updated)",
-            description=changes_display,
+            description=embed_formatted,
             color=discord.Color.green(),
             timestamp=timestamp_dt,
         )
@@ -89,6 +83,7 @@ class EditPatchNote(commands.Cog):
         if updated_note["image_url"]:
             embed.set_image(url=updated_note["image_url"])
 
+        # ✅ Send
         await interaction.response.send_message(
             f"Patch note #{patch_id} updated successfully.", embed=embed
         )

@@ -1,21 +1,20 @@
 import aiosqlite
-
 from logger import setup_logger
 
+from .ai_db import AIDatabaseManager
 from .bank_db import BankDatabaseManager
 from .buffs_db import BuffsDatabaseManager
 from .game_db import GameDatabaseManager
+from .guild_db import GuildSettingsDatabaseManager
 from .heist_db import HeistDatabaseManager
 from .inventory_db import InventoryDatabaseManager
+from .movies_db import MoviesDatabaseManager
+from .patch_notes_db import PatchNotesDatabaseManager
 from .players_db import PlayersDatabaseManager
 from .steal_db import StealDatabaseManager
+from .steam_games_db import SteamGamesDatabaseManager
 from .user_db import UserDatabaseManager
 from .work_db import WorkDatabaseManager
-from .movies_db import MoviesDatabaseManager
-from .guild_db import GuildSettingsDatabaseManager
-from .ai_db import AIDatabaseManager
-from .steam_games_db import SteamGamesDatabaseManager
-from .patch_notes_db import PatchNotesDatabaseManager
 
 logger = setup_logger("DatabaseManagerBase")
 

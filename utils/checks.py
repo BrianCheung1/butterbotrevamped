@@ -1,5 +1,6 @@
-import discord
 import os
+
+import discord
 from logger import setup_logger
 
 logger = setup_logger("ChecksHandler")
