@@ -128,7 +128,16 @@ class Upload(commands.Cog):
             categories = " ".join(
                 f"`{c['description']}`" for c in steam_data.get("categories", [])[:5]
             )
-            notes = notes = clean_notes(notes)
+            if not notes or notes.strip().lower() == "no notes":
+                if add.value == "Updated":
+                    game = await self.bot.database.steam_games_db.get_game_by_title(
+                        title
+                    )
+                    notes = game.get("notes", "No Notes") if game else "No Notes"
+                else:
+                    notes = "No Notes"
+            else:
+                notes = clean_notes(notes)
 
             # Save or update in DB
             await self.bot.database.steam_games_db.upsert_game(
@@ -167,17 +176,17 @@ class Upload(commands.Cog):
                 value=f"[Click Here]({download_link})",
                 inline=False,
             )
-            embed.add_field(
-                name="Full Games List", value=f"[Click Here]({GAMES})", inline=False
-            )
-            embed.add_field(
-                name="Steam Link", value=f"[Click Here]({steam_link})", inline=False
-            )
-            embed.add_field(
-                name="Have a request?",
-                value=f"[Click Here]({REQUEST_FORM_LINK})",
-                inline=False,
-            )
+            # embed.add_field(
+            #     name="Full Games List", value=f"[Click Here]({GAMES})", inline=False
+            # )
+            # embed.add_field(
+            #     name="Steam Link", value=f"[Click Here]({steam_link})", inline=False
+            # )
+            # embed.add_field(
+            #     name="Have a request?",
+            #     value=f"[Click Here]({REQUEST_FORM_LINK})",
+            #     inline=False,
+            # )
             embed.add_field(
                 name="Description", value=f"```{description}```", inline=False
             )

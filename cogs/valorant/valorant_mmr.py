@@ -161,14 +161,14 @@ class ValorantMMRHistory(commands.Cog):
     def _parse_player_rank(self, current_data):
         games_needed = current_data.get("games_needed_for_rating", 0)
         if games_needed > 0:
-            return "Unrated", 0
+            return "Unrated", 0, games_needed
         rank = current_data.get("tier", {}).get("name", "Unknown")
         rr = current_data.get("rr", 0)
-        return rank, rr
+        return rank, rr, 0
 
     def _build_empty_history_embed(self, name, tag, mmr_data):
         current = mmr_data["data"].get("current", {})
-        current_rank, current_rr = self._parse_player_rank(current)
+        current_rank, current_rr, games_needed = self._parse_player_rank(current)
 
         embed = discord.Embed(
             title=f"Current Rank and RR for {name}#{tag}",
@@ -177,6 +177,14 @@ class ValorantMMRHistory(commands.Cog):
         )
         embed.add_field(name="Current Rank", value=current_rank, inline=True)
         embed.add_field(name="Current RR", value=str(current_rr), inline=True)
+
+        if games_needed > 0:
+            embed.add_field(
+                name="Placement Games Needed",
+                value=f"{games_needed}",
+                inline=False,
+            )
+
         return embed
 
     def _build_paginated_embeds(
@@ -186,7 +194,7 @@ class ValorantMMRHistory(commands.Cog):
         pages = []
 
         current = mmr_data["data"].get("current", {})
-        current_rank, current_rr = self._parse_player_rank(current)
+        current_rank, current_rr, games_needed = self._parse_player_rank(current)
         shields = current.get("rank_protection_shields", 0)
 
         # Build main embed
@@ -224,6 +232,12 @@ class ValorantMMRHistory(commands.Cog):
         main_embed.add_field(name="\u200b", value="\u200b", inline=True)
         main_embed.add_field(name="Current Rank", value=current_rank, inline=True)
         main_embed.add_field(name="Current RR", value=str(current_rr), inline=True)
+        if games_needed > 0:
+            main_embed.add_field(
+                name="Placement Games Needed",
+                value=f"{games_needed}",
+                inline=True,
+            )
         main_embed.add_field(name="\u200b", value="\u200b", inline=True)
         main_embed.add_field(name="Total Shields", value=str(shields), inline=True)
         main_embed.add_field(

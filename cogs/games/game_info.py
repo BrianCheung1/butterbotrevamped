@@ -42,8 +42,6 @@ class GameInfo(commands.Cog):
             )
             return
 
-        GAMES = os.getenv("GAMES")
-
         embed = discord.Embed(
             title=f"{game['title']}",
             color=0x00AEFF,
@@ -59,14 +57,14 @@ class GameInfo(commands.Cog):
             value=f"[Click Here]({game['download_link']})",
             inline=False,
         )
-        embed.add_field(
-            name="Steam Link", value=f"[Click Here]({game['steam_link']})", inline=False
-        )
-
-        if GAMES:
-            embed.add_field(
-                name="Full Games List", value=f"[Click Here]({GAMES})", inline=False
-            )
+        # embed.add_field(``
+        #     name="Steam Link", value=f"[Click Here]({game['steam_link']})", inline=False
+        # )
+        # GAMES = os.getenv("GAMES")
+        # if GAMES:
+        #     embed.add_field(
+        #         name="Full Games List", value=f"[Click Here]({GAMES})", inline=False
+        #     )
 
         embed.add_field(
             name="Description", value=f"```{game['description']}```", inline=False

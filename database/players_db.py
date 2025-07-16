@@ -82,3 +82,19 @@ class PlayersDatabaseManager:
         except Exception as e:
             logger.error(f"Error loading player MMR from database: {e}")
             return []
+
+    @db_error_handler
+    async def delete_player(self, name: str, tag: str) -> bool:
+        """Delete a specific player from the database."""
+        name, tag = name.lower(), tag.lower()
+
+        try:
+            cursor = await self.connection.execute(
+                "DELETE FROM players WHERE name = ? AND tag = ?",
+                (name, tag),
+            )
+            await self.connection.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error deleting player {name}#{tag}: {e}")
+            return False
