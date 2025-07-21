@@ -209,3 +209,11 @@ CREATE TABLE IF NOT EXISTS patch_notes (
     changes TEXT, -- stored as a single string with ; delimiter
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    reminder TEXT NOT NULL,
+    remind_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
