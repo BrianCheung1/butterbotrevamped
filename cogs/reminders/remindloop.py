@@ -1,8 +1,9 @@
 # cogs/remind_loop.py
 
-from discord.ext import tasks, commands
 from datetime import datetime
+
 import discord
+from discord.ext import commands, tasks
 
 
 class RemindLoop(commands.Cog):

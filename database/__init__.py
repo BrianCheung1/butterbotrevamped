@@ -11,11 +11,11 @@ from .inventory_db import InventoryDatabaseManager
 from .movies_db import MoviesDatabaseManager
 from .patch_notes_db import PatchNotesDatabaseManager
 from .players_db import PlayersDatabaseManager
+from .reminders_db import RemindersDatabaseManager
 from .steal_db import StealDatabaseManager
 from .steam_games_db import SteamGamesDatabaseManager
 from .user_db import UserDatabaseManager
 from .work_db import WorkDatabaseManager
-from .reminders_db import RemindersDatabaseManager
 
 logger = setup_logger("DatabaseManagerBase")
 

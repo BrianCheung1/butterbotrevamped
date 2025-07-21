@@ -48,9 +48,22 @@ class AddPatchNote(commands.Cog):
             interaction.user.id, interaction.user.name, db_formatted, image_url
         )
 
-        # ✅ Build embed
+        # ✅ Fetch all patch notes and sort descending by timestamp (latest first)
+        entries = await self.bot.database.patch_notes_db.get_all_patch_notes()
+        entries.sort(key=lambda e: e["timestamp"], reverse=True)
+
+        # ✅ Find display number of the newly added patch note
+        display_number = None
+        for i, entry in enumerate(entries):
+            if entry["id"] == patch_id:
+                display_number = len(entries) - i
+                break
+        if display_number is None:
+            display_number = 1  # fallback if not found
+
+        # ✅ Build embed with display_number instead of patch_id
         embed = discord.Embed(
-            title=f"🛠️ Patch Notes #{patch_id}",
+            title=f"🛠️ Patch Notes #{display_number}",
             description=embed_formatted,
             color=discord.Color.green(),
             timestamp=datetime.now(timezone.utc),

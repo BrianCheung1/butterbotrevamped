@@ -5,6 +5,7 @@ from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils.autcomplete import patch_number_autocomplete
 from utils.channels import broadcast_embed_to_guilds
 from utils.checks import is_owner_check
 from utils.formatting import clean_patchnotes
@@ -17,29 +18,37 @@ class EditPatchNote(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="patchnotes-edit", description="Edit a patch note by its ID"
+        name="patchnotes-edit",
+        description="Edit a patch note by its visible number",
     )
     @app_commands.describe(
-        patch_id="The patch note ID to edit",
+        patch_number="The visible patch note number to edit (autocomplete enabled)",
         changes="New patch note changes separated by ';'",
+        attachment="Optional new image attachment",
     )
     @app_commands.check(is_owner_check)
     @app_commands.guilds(DEV_GUILD_ID)
+    @app_commands.autocomplete(patch_number=patch_number_autocomplete)
     async def patchnotes_edit(
         self,
         interaction: discord.Interaction,
-        patch_id: int,
+        patch_number: int,
         changes: str,
         attachment: Optional[discord.Attachment] = None,
     ):
-        note = await self.bot.database.patch_notes_db.get_patch_note_by_id(patch_id)
-        if not note:
+        entries = await self.bot.database.patch_notes_db.get_all_patch_notes()
+        entries.sort(key=lambda e: e["timestamp"], reverse=True)
+
+        index = len(entries) - patch_number
+        if index < 0 or index >= len(entries):
             await interaction.response.send_message(
-                f"Patch note #{patch_id} not found.", ephemeral=True
+                f"Patch note #{patch_number} not found.", ephemeral=True
             )
             return
 
-        # ✅ Clean changes
+        note = entries[index]
+        patch_db_id = note["id"]
+
         db_formatted, embed_formatted = clean_patchnotes(changes)
         if not db_formatted:
             await interaction.response.send_message(
@@ -47,7 +56,6 @@ class EditPatchNote(commands.Cog):
             )
             return
 
-        # ✅ Decide image url
         if (
             attachment
             and attachment.content_type
@@ -55,25 +63,21 @@ class EditPatchNote(commands.Cog):
         ):
             image_url = attachment.url
         else:
-            image_url = note["image_url"]  # Keep previous image if none uploaded
+            image_url = note["image_url"]
 
-        # ✅ Update in DB
         await self.bot.database.patch_notes_db.update_patch_note_changes_and_image(
-            patch_id, db_formatted, image_url
+            patch_db_id, db_formatted, image_url
         )
 
         updated_note = await self.bot.database.patch_notes_db.get_patch_note_by_id(
-            patch_id
+            patch_db_id
         )
-
-        # ✅ Parse timestamp
         timestamp_dt = datetime.fromisoformat(updated_note["timestamp"]).replace(
             tzinfo=timezone.utc
         )
 
-        # ✅ Build embed
         embed = discord.Embed(
-            title=f"🛠️ Patch #{updated_note['id']} Notes (Updated)",
+            title=f"🛠️ Patch #{patch_number} Notes (Updated)",
             description=embed_formatted,
             color=discord.Color.green(),
             timestamp=timestamp_dt,
@@ -83,9 +87,8 @@ class EditPatchNote(commands.Cog):
         if updated_note["image_url"]:
             embed.set_image(url=updated_note["image_url"])
 
-        # ✅ Send
         await interaction.response.send_message(
-            f"Patch note #{patch_id} updated successfully.", embed=embed
+            f"Patch note #{patch_number} updated successfully.", embed=embed
         )
 
         await broadcast_embed_to_guilds(self.bot, "patchnotes_channel_id", embed)

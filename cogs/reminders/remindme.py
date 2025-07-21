@@ -42,6 +42,8 @@ class Reminder(commands.Cog):
     @app_commands.describe(
         time="Duration format: combine units like '1m 1s', '2h 30m', or '1d 1m'. Units: s (seconds), m (minutes), h (hours), d (days), mo (months)"
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def remindme(self, interaction: discord.Interaction, time: str, note: str):
         duration = parse_duration(time)
         if not duration:

@@ -1,7 +1,8 @@
+from datetime import datetime, timezone
+
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import datetime, timezone
 
 REMINDERS_PER_PAGE = 10
 
@@ -102,6 +103,8 @@ class RemindList(commands.Cog):
     @app_commands.command(
         name="reminders-list", description="List all your active reminders"
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def reminders_list(self, interaction: discord.Interaction):
         reminders = await self.bot.database.reminders_db.get_user_reminders(
             interaction.user.id
