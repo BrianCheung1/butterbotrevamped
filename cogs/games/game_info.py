@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timezone
 
 import discord
@@ -26,7 +25,9 @@ class GameInfo(commands.Cog):
             :25
         ]  # Discord's max autocomplete limit
 
-    @app_commands.command(name="game-info", description="Get details about a game")
+    @app_commands.command(
+        name="steam-game-info", description="Get details about a game"
+    )
     @app_commands.describe(title="The title of the game")
     @app_commands.check(is_owner_or_mod_check)
     @app_commands.autocomplete(title=game_title_autocomplete)

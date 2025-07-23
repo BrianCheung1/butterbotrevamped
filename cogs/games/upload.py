@@ -65,7 +65,9 @@ class Upload(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="add-game", description="Add a game to games channel")
+    @app_commands.command(
+        name="steam-game-add", description="Add a game to games channel"
+    )
     @app_commands.describe(
         add="Adding or Updating a game",
         download_link="The google drive download link",

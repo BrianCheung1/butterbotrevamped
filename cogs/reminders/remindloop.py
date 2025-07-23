@@ -1,7 +1,3 @@
-# cogs/remind_loop.py
-
-from datetime import datetime
-
 import discord
 from discord.ext import commands, tasks
 

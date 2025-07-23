@@ -1,7 +1,9 @@
 import discord
 
 
-async def broadcast_embed_to_guilds(bot, channel_type: str, embed: discord.Embed):
+async def broadcast_embed_to_guilds(
+    bot, channel_type: str, embed: discord.Embed, view: discord.ui.View = None
+):
     for guild in bot.guilds:
         channel_id = await bot.database.guild_db.get_channel(guild.id, channel_type)
         if not channel_id:
@@ -12,7 +14,7 @@ async def broadcast_embed_to_guilds(bot, channel_type: str, embed: discord.Embed
             continue
 
         try:
-            await channel.send(embed=embed)
+            await channel.send(embed=embed, view=view)
         except discord.Forbidden:
             bot.logger.warning(
                 f"Missing permission to send messages in {channel.name} ({channel.id}) for guild {guild.name} ({guild.id})"

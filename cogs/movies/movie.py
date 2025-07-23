@@ -34,7 +34,7 @@ class Movies(commands.Cog):
             f"Cached {len(movies)} movies across {len(self.guilds)} guilds"
         )
 
-    @app_commands.command(name="add-movie", description="Search for a movie by title.")
+    @app_commands.command(name="movie-add", description="Search for a movie by title.")
     async def add_movie(self, interaction: discord.Interaction, title: str):
         await interaction.response.defer(thinking=True)
 
@@ -69,7 +69,7 @@ class Movies(commands.Cog):
         view.message = message  # Store the message so `on_timeout` can edit it
 
     @app_commands.command(
-        name="list-movies", description="List all movies added to the guild."
+        name="movie-list", description="List all movies added to the guild."
     )
     async def list_movies(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
@@ -134,7 +134,7 @@ class Movies(commands.Cog):
             if current.lower() in m["title"].lower()
         ][:25]
 
-    @app_commands.command(name="remove-movie", description="Remove a movie by title.")
+    @app_commands.command(name="movie-remove", description="Remove a movie by title.")
     @app_commands.describe(title="The title of the movie to remove.")
     @app_commands.autocomplete(title=movie_title_autocomplete)
     async def remove_movie(self, interaction: discord.Interaction, title: str):

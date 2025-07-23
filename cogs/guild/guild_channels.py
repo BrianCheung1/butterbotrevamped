@@ -8,6 +8,7 @@ CHANNEL_TYPES = {
     "Interest": "interest_channel_id",
     "Patch Notes": "patchnotes_channel_id",
     "Steam Games": "steam_games_channel_id",
+    "Leaderboard Announcements": "leaderboard_announcements_channel_id",  # <-- new
 }
 
 
@@ -16,7 +17,7 @@ class GuildChannels(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="set-channel",
+        name="channel-set",
         description="Set the current channel for a specific purpose (admin only).",
     )
     @app_commands.choices(
@@ -43,7 +44,7 @@ class GuildChannels(commands.Cog):
         )
 
     @app_commands.command(
-        name="remove-channel",
+        name="channel-remove",
         description="Unset a specific announcement/feature channel (admin only).",
     )
     @app_commands.choices(

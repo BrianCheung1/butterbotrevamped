@@ -13,25 +13,21 @@ from utils.formatting import format_number
 class Bank(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.hours = 0
-        self.hourly_interest_task.start()
+        self.daily_interest_task.start()
 
     def cog_unload(self):
-        self.hourly_interest_task.cancel()
+        self.daily_interest_task.cancel()
 
-    async def wait_until_next_hour(self):
-        now = datetime.utcnow()
-        next_hour = (now + timedelta(hours=1)).replace(
-            minute=0, second=0, microsecond=0
+    def seconds_until_next_utc_midnight(self) -> float:
+        now = datetime.now(timezone.utc)
+        tomorrow_midnight = (now + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
         )
-        wait_seconds = (next_hour - now).total_seconds()
-        return wait_seconds
+        return (tomorrow_midnight - now).total_seconds()
 
-    @tasks.loop(hours=1)
-    async def hourly_interest_task(self):
+    @tasks.loop(hours=24)
+    async def daily_interest_task(self):
         await self.bot.wait_until_ready()
-        self.hours += 1
-
         user_ids = await self.bot.database.bank_db.get_all_bank_users()
         interest_rate = 0.001
         user_count = 0
@@ -59,28 +55,23 @@ class Bank(commands.Cog):
             await self.bot.database.bank_db.set_bank_balance(user_id, new_balance)
             user_count += 1
 
-        # 🔽 Send announcement if bank channel is set
-        if self.hours % 24 == 0:
-            embed = discord.Embed(
-                title="💸 Interest has been applied to all active bank accounts!",
-                description=f"A total of {user_count} users have received their interest for the day.",
-                color=discord.Color.green(),
-                timestamp=datetime.now(timezone.utc),
-            )
-            await broadcast_embed_to_guilds(self.bot, "interest_channel_id", embed)
-        else:
-            self.bot.logger.info(
-                f"💸 Interest has been applied to all active bank accounts! ({user_count} users updated)"
-            )
+        embed = discord.Embed(
+            title="💸 Interest has been applied to all active bank accounts!",
+            description=f"A total of {user_count} users have received their interest for the day.",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        await broadcast_embed_to_guilds(self.bot, "interest_channel_id", embed)
 
-    @hourly_interest_task.before_loop
-    async def before_interest_task(self):
-        wait_seconds = await self.wait_until_next_hour()
-        time_left = str(
-            timedelta(seconds=wait_seconds)
-        )  # Convert to a readable time format
-        self.bot.logger.info(f"Next interest update in {time_left}")
-        await asyncio.sleep(wait_seconds)
+        self.bot.logger.info(
+            f"💸 Daily interest applied for {user_count} users at 12:00 AM UTC."
+        )
+
+    @daily_interest_task.before_loop
+    async def before_daily_interest_task(self):
+        seconds = self.seconds_until_next_utc_midnight()
+        self.bot.logger.info(f"Waiting {seconds:.2f} seconds until next 12:00 AM UTC.")
+        await asyncio.sleep(seconds)
 
     def build_bank_embed(
         self, user: discord.User, bank_stats: dict, bank_balance: int
@@ -189,9 +180,6 @@ class Bank(commands.Cog):
             return
 
         # Update DB
-        # await self.bot.database.user_db.set_balance(
-        #     user_id, balance - amount_to_deposit
-        # )
         await self.bot.database.user_db.increment_balance(user_id, -amount_to_deposit)
         await self.bot.database.bank_db.set_bank_balance(
             user_id, bank_stats["bank_balance"] + amount_to_deposit
@@ -261,9 +249,6 @@ class Bank(commands.Cog):
         await self.bot.database.bank_db.set_bank_balance(
             user_id, bank_balance - amount_to_withdraw
         )
-        # await self.bot.database.user_db.set_balance(
-        #     user_id, balance + amount_to_withdraw
-        # )
         await self.bot.database.user_db.increment_balance(user_id, amount_to_withdraw)
 
         embed = self.build_transaction_embed(

@@ -1,30 +1,46 @@
-from typing import List
+from datetime import datetime, timezone
+from typing import List, Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from utils.formatting import format_number
 
 
 class LeaderboardView(discord.ui.View):
     def __init__(
-        self, data: List[dict], leaderboard_type: str, interaction: discord.Interaction
+        self,
+        data: List[dict],
+        leaderboard_type: str,
+        interaction: Optional[discord.Interaction] = None,
+        *,
+        open_access: bool = False,
+        guild: Optional[discord.Guild] = None,  # New parameter
     ):
         super().__init__(timeout=60)
-        # Filter to only include members still in the guild
-        self.data = [
-            row
-            for row in data
-            if (member := interaction.guild.get_member(row["user_id"]))
-            and not member.bot
-        ]
+        self.guild = guild or (interaction.guild if interaction else None)
+
+        # Filter to only include members still in the guild if guild is known
+        if self.guild:
+            self.data = [
+                row
+                for row in data
+                if (member := self.guild.get_member(row["user_id"])) and not member.bot
+            ]
+        else:
+            # If no guild, use data as is
+            self.data = data
+
         self.leaderboard_type = leaderboard_type
         self.interaction = interaction
         self.page = 0
         self.entries_per_page = 10
-        self.max_page = (len(data) - 1) // self.entries_per_page
+        self.max_page = (
+            (len(self.data) - 1) // self.entries_per_page if self.data else 0
+        )
+        self.open_access = open_access
 
-        self.prev_button.disabled = True  # Initially disable prev
+        self.prev_button.disabled = True  # Disable prev initially
         if self.max_page == 0:
             self.next_button.disabled = True
 
@@ -36,7 +52,7 @@ class LeaderboardView(discord.ui.View):
         leaderboard_str = ""
         for i, row in enumerate(leaderboard_slice, start=start + 1):
             user_id = row["user_id"]
-            user = self.interaction.guild.get_member(user_id)
+            user = self.guild.get_member(user_id) if self.guild else None
             username = (
                 user.nick
                 if user and user.nick
@@ -67,7 +83,10 @@ class LeaderboardView(discord.ui.View):
     async def prev_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        if interaction.user != self.interaction.user:
+        # Allow all users if open_access=True, else restrict to original user only
+        if not self.open_access and interaction.user != getattr(
+            self.interaction, "user", None
+        ):
             await interaction.response.send_message(
                 "You're not allowed to use this leaderboard.", ephemeral=True
             )
@@ -84,7 +103,9 @@ class LeaderboardView(discord.ui.View):
     async def next_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        if interaction.user != self.interaction.user:
+        if not self.open_access and interaction.user != getattr(
+            self.interaction, "user", None
+        ):
             await interaction.response.send_message(
                 "You're not allowed to use this leaderboard.", ephemeral=True
             )
@@ -101,6 +122,53 @@ class LeaderboardView(discord.ui.View):
 class Leaderboard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.leaderboard_types = [
+            "balance",
+            "mining_level",
+            "fishing_level",
+            "bank_balance",
+        ]
+        self.daily_leaderboard_task.start()
+
+    def cog_unload(self):
+        self.daily_leaderboard_task.cancel()
+
+    @tasks.loop(minutes=1)
+    async def daily_leaderboard_task(self):
+        now = datetime.now(timezone.utc)
+        if now.hour == 0 and now.minute == 0:
+            await self.send_daily_leaderboards()
+
+    async def send_daily_leaderboards(self):
+        for guild in self.bot.guilds:
+            # Retrieve the leaderboard announcements channel ID from your guild database
+            channel_id = await self.bot.database.guild_db.get_channel(
+                guild_id=guild.id,
+                channel_type="leaderboard_announcements_channel_id",
+            )
+            if not channel_id:
+                continue
+
+            channel = guild.get_channel(channel_id)
+            if not channel:
+                continue
+
+            for lb_type in self.leaderboard_types:
+                data = await self.bot.database.get_leaderboard_data(lb_type)
+                view = LeaderboardView(
+                    data,
+                    lb_type,
+                    interaction=None,
+                    open_access=True,
+                    guild=guild,  # Pass guild here for member lookup
+                )
+                embed = view.generate_embed()
+                try:
+                    await channel.send(embed=embed, view=view)
+                except Exception as e:
+                    print(
+                        f"Failed to send leaderboard to channel {channel_id} in guild {guild.id}: {e}"
+                    )
 
     @app_commands.command(name="leaderboard", description="View the leaderboard")
     @app_commands.choices(

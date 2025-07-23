@@ -20,6 +20,7 @@ class GuildSettingsDatabaseManager:
             "interest_channel_id",
             "patchnotes_channel_id",
             "steam_games_channel_id",
+            "leaderboard_announcements_channel_id",
         }:
             raise ValueError(f"Invalid channel_type '{channel_type}'")
 
@@ -43,6 +44,7 @@ class GuildSettingsDatabaseManager:
             "interest_channel_id",
             "patchnotes_channel_id",
             "steam_games_channel_id",
+            "leaderboard_announcements_channel_id",
         }:
             raise ValueError(f"Invalid channel_type '{channel_type}'")
 
@@ -79,6 +81,7 @@ class GuildSettingsDatabaseManager:
             "interest_channel_id",
             "patchnotes_channel_id",
             "steam_games_channel_id",
+            "leaderboard_announcements_channel_id",
         }:
             raise ValueError(f"Invalid channel_type '{channel_type}'")
 

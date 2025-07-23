@@ -101,7 +101,7 @@ class RemindList(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="reminders-list", description="List all your active reminders"
+        name="reminder-list", description="List all your active reminders"
     )
     @app_commands.allowed_installs(guilds=True, users=True)
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)

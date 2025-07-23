@@ -37,7 +37,7 @@ class Reminder(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="remindme", description="Set a reminder with a time and note"
+        name="reminder", description="Set a reminder with a time and note"
     )
     @app_commands.describe(
         time="Duration format: combine units like '1m 1s', '2h 30m', or '1d 1m'. Units: s (seconds), m (minutes), h (hours), d (days), mo (months)"
