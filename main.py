@@ -42,18 +42,35 @@ class MyBot(commands.Bot):
             await db.commit()
 
     async def load_cogs(self):
-        for root, _, files in os.walk("cogs"):
-            for file in files:
-                if file.endswith(".py") and not file.startswith("_"):
-                    # Convert file path to Python module path
-                    module = os.path.splitext(os.path.join(root, file))[0].replace(
-                        os.sep, "."
-                    )
-                    try:
-                        await bot.load_extension(module)
-                        self.logger.info(f"Loaded extension '{module}'")
-                    except Exception as e:
-                        self.logger.error(f"Failed to load extension {module}\n{e}")
+        # Find all cog modules (exclude private files)
+        cogs_to_load = [
+            os.path.splitext(os.path.join(root, file))[0].replace(os.sep, ".")
+            for root, _, files in os.walk("cogs")
+            for file in files
+            if file.endswith(".py") and not file.startswith("_")
+        ]
+
+        failed_cogs = []
+        logged_folders = set()
+
+        for name in cogs_to_load:
+            parts = name.split(".")
+            # e.g. 'cogs.moderation.some_cog' => top_level_name = 'cogs.moderation'
+            top_level_name = ".".join(parts[:2]) if len(parts) >= 2 else name
+
+            try:
+                await self.load_extension(name)
+                if top_level_name not in logged_folders:
+                    self.logger.info(f"Loaded {top_level_name} cog.")
+                    logged_folders.add(top_level_name)
+            except Exception as e:
+                failed_cogs.append(f"`{name}`: {e}")
+                self.logger.error(f"Failed to load extension {name}\n{e}")
+
+        if failed_cogs:
+            self.logger.error(
+                f"Failed to load the following cogs:\n" + "\n".join(failed_cogs)
+            )
 
     async def on_ready(self) -> None:
         """

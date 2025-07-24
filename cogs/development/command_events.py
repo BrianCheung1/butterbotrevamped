@@ -1,7 +1,14 @@
 import discord
 from discord import app_commands
-from discord.app_commands import CheckFailure
+from discord.app_commands import (
+    AppCommandError,
+    CommandOnCooldown,
+    MissingPermissions,
+    BotMissingPermissions,
+    CheckFailure,
+)
 from discord.ext import commands
+from datetime import datetime
 
 
 class CommandEvents(commands.Cog):
@@ -15,67 +22,76 @@ class CommandEvents(commands.Cog):
     ) -> None:
         """
         This event is triggered when a slash command has been successfully executed.
-
-        :param interaction: The interaction of the command.
-        :param command: The command that was executed.
         """
-        executed_command = command.qualified_name
+        executed_command = f"/{command.qualified_name}"
+        user = interaction.user
+        now = datetime.now().strftime("%I:%M:%S:%p")  # 12-hour format
+
+        GREEN = "\x1b[32m"
+        RESET = "\x1b[0m"
+
         if interaction.guild:
-            self.bot.logger.info(
-                f"Executed /{executed_command} in {interaction.guild.name} (ID: {interaction.guild.id}) "
-                f"by {interaction.user} (ID: {interaction.user.id})"
+            guild_name = interaction.guild.name
+            channel_name = (
+                interaction.channel.name
+                if isinstance(interaction.channel, discord.TextChannel)
+                else "Unknown"
             )
+            log_msg = f"{GREEN}[{guild_name}][#{channel_name}][{now}] {user}: {executed_command} Successfully executed.{RESET}"
         else:
-            self.bot.logger.info(
-                f"Executed /{executed_command} by {interaction.user} (ID: {interaction.user.id}) in DMs"
-            )
+            log_msg = f"{GREEN}[DMs][{now}] {user}: {executed_command} Successfully executed.{RESET}"
+
+        self.bot.logger.info(log_msg)
 
     @commands.Cog.listener()
     async def on_app_command_error(
-        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+        self, interaction: discord.Interaction, error: AppCommandError
     ) -> None:
         """
         This event is triggered when an error occurs while executing a slash command.
-
-        :param interaction: The interaction of the command.
-        :param error: The error that occurred.
         """
-        command_name = interaction.command.name if interaction.command else "unknown"
-        guild_name = interaction.guild.name if interaction.guild else "DMs"
-        guild_id = interaction.guild.id if interaction.guild else "N/A"
+        command_name = (
+            f"/{interaction.command.name}" if interaction.command else "/unknown"
+        )
+        user = interaction.user
+        now = datetime.now().strftime("%I:%M:%S:%p")  # 12-hour format
 
-        # Log the error including the traceback
+        RED = "\x1b[31m"
+        RESET = "\x1b[0m"
+
         if interaction.guild:
-            self.bot.logger.error(
-                f"Error in /{command_name} command: {error} in {guild_name} (ID: {guild_id}) "
-                f"by {interaction.user} (ID: {interaction.user.id})",
-                exc_info=True,
+            guild_name = interaction.guild.name
+            channel_name = (
+                interaction.channel.name
+                if isinstance(interaction.channel, discord.TextChannel)
+                else "Unknown"
             )
+            log_msg = f"{RED}[{guild_name}][#{channel_name}][{now}] {user}: ERROR in {command_name} — {error}{RESET}"
         else:
-            self.bot.logger.error(
-                f"Error in /{command_name} command: {error} in DMs by {interaction.user} (ID: {interaction.user.id})",
-                exc_info=True,
+            log_msg = (
+                f"{RED}[DMs][{now}] {user}: ERROR in {command_name} — {error}{RESET}"
             )
 
-        # Check if already responded
+        self.bot.logger.error(log_msg, exc_info=True)
+
+        # Respond to the user if possible
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
 
-        if isinstance(error, app_commands.CommandOnCooldown):
+        if isinstance(error, CommandOnCooldown):
             await interaction.followup.send(
                 f"This command is on cooldown. Try again in {error.retry_after:.2f} seconds.",
                 ephemeral=True,
             )
-        elif isinstance(error, app_commands.MissingPermissions):
+        elif isinstance(error, MissingPermissions):
             await interaction.followup.send(
                 "You do not have permission to use this command.", ephemeral=True
             )
-        elif isinstance(error, app_commands.BotMissingPermissions):
+        elif isinstance(error, BotMissingPermissions):
             await interaction.followup.send(
                 "I do not have permission to execute this command.", ephemeral=True
             )
         elif isinstance(error, CheckFailure):
-            # Handle check failure (permission denied, failed check, etc)
             await interaction.followup.send(
                 "You do not have permission to use this command.", ephemeral=True
             )

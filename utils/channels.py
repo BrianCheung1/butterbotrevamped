@@ -1,6 +1,20 @@
 import discord
 
 
+# Maps display name to DB field name
+CHANNEL_TYPES = {
+    "Interest": "interest_channel_id",
+    "Patch Notes": "patchnotes_channel_id",
+    "Steam Games": "steam_games_channel_id",
+    "Leaderboard Announcements": "leaderboard_announcements_channel_id",
+    "Mod Logs": "mod_log_channel_id",
+    # Add more here as needed
+}
+
+# Extract valid DB keys for validation
+VALID_CHANNEL_TYPES = set(CHANNEL_TYPES.values())
+
+
 async def broadcast_embed_to_guilds(
     bot, channel_type: str, embed: discord.Embed, view: discord.ui.View = None
 ):

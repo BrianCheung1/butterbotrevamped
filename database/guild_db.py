@@ -1,6 +1,7 @@
 import aiosqlite
 from logger import setup_logger
 from utils.database_errors import db_error_handler
+from utils.channels import VALID_CHANNEL_TYPES
 
 logger = setup_logger("GuildSettingsDatabaseManager")
 
@@ -9,6 +10,10 @@ class GuildSettingsDatabaseManager:
     def __init__(self, connection: aiosqlite.Connection) -> None:
         self.connection = connection
 
+    def _validate_channel_type(self, channel_type: str) -> None:
+        if channel_type not in VALID_CHANNEL_TYPES:
+            raise ValueError(f"Invalid channel_type '{channel_type}'")
+
     @db_error_handler
     async def set_channel(
         self, guild_id: int, channel_type: str, channel_id: int
@@ -16,13 +21,7 @@ class GuildSettingsDatabaseManager:
         """
         Set a specific channel type (e.g., 'interest_channel_id') for the guild.
         """
-        if channel_type not in {
-            "interest_channel_id",
-            "patchnotes_channel_id",
-            "steam_games_channel_id",
-            "leaderboard_announcements_channel_id",
-        }:
-            raise ValueError(f"Invalid channel_type '{channel_type}'")
+        self._validate_channel_type(channel_type)
 
         await self.connection.execute("BEGIN IMMEDIATE")
         await self.connection.execute(
@@ -40,16 +39,11 @@ class GuildSettingsDatabaseManager:
         """
         Get the channel ID of the specified type for the guild.
         """
-        if channel_type not in {
-            "interest_channel_id",
-            "patchnotes_channel_id",
-            "steam_games_channel_id",
-            "leaderboard_announcements_channel_id",
-        }:
-            raise ValueError(f"Invalid channel_type '{channel_type}'")
+        self._validate_channel_type(channel_type)
 
         async with self.connection.execute(
-            f"SELECT {channel_type} FROM guild_settings WHERE guild_id = ?", (guild_id,)
+            f"SELECT {channel_type} FROM guild_settings WHERE guild_id = ?",
+            (guild_id,),
         ) as cursor:
             row = await cursor.fetchone()
 
@@ -61,7 +55,8 @@ class GuildSettingsDatabaseManager:
         Retrieve all settings for a guild.
         """
         async with self.connection.execute(
-            "SELECT * FROM guild_settings WHERE guild_id = ?", (guild_id,)
+            "SELECT * FROM guild_settings WHERE guild_id = ?",
+            (guild_id,),
         ) as cursor:
             row = await cursor.fetchone()
 
@@ -77,13 +72,7 @@ class GuildSettingsDatabaseManager:
         Remove (unset) the channel of the specified type for the guild by setting it to NULL.
         Returns True if a row was updated, False if not.
         """
-        if channel_type not in {
-            "interest_channel_id",
-            "patchnotes_channel_id",
-            "steam_games_channel_id",
-            "leaderboard_announcements_channel_id",
-        }:
-            raise ValueError(f"Invalid channel_type '{channel_type}'")
+        self._validate_channel_type(channel_type)
 
         cursor = await self.connection.execute(
             f"""
@@ -94,5 +83,4 @@ class GuildSettingsDatabaseManager:
             (guild_id,),
         )
         await self.connection.commit()
-
         return cursor.rowcount > 0

@@ -1,15 +1,14 @@
 import asyncio
 import os
 import textwrap
-from datetime import datetime
 
 import aiohttp
 import discord
 from discord.ext import commands
 
 
-class AI(commands.Cog):
-    def __init__(self, bot) -> None:
+class AIResponse(commands.Cog):
+    def __init__(self, bot):
         self.bot = bot
 
     @commands.Cog.listener()
@@ -19,42 +18,31 @@ class AI(commands.Cog):
 
         if self.bot.user in message.mentions:
             user_input = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
-            if user_input:
-                generating_msg = await message.reply("Generating response...")
-                history = await self.bot.database.ai_db.get_user_history(
-                    message.author.id
-                )
-                response = await self.generate_ai_response(user_input, history)
-                await self.bot.database.ai_db.log_interaction(
-                    message.author.id, user_input, response
-                )
-                await generating_msg.delete()
-
-                def smart_chunk(text, max_length=2000):
-                    return textwrap.wrap(
-                        text,
-                        width=max_length,
-                        break_long_words=False,
-                        break_on_hyphens=False,
-                    )
-
-                chunks = smart_chunk(response)
-                for chunk in chunks:
-                    await message.channel.send(chunk)
-            else:
+            if not user_input:
                 await message.reply(
                     "Hello! Mention me with a message, and I'll respond!"
                 )
+                return
 
-        # ✅ Log both DMs and guild messages
-        if message.guild:
-            location = f"[{message.guild.name}][{message.channel.name}]"
-        else:
-            location = "[DM]"
+            generating_msg = await message.reply("Generating response...")
 
-        self.bot.logger.info(
-            f"{location}[{datetime.now().strftime('%I:%M:%S:%p')}] "
-            f"{message.author}: {message.content}"
+            history = await self.bot.database.ai_db.get_user_history(message.author.id)
+            response = await self.generate_ai_response(user_input, history)
+
+            await self.bot.database.ai_db.log_interaction(
+                message.author.id, user_input, response
+            )
+            await generating_msg.delete()
+
+            for chunk in self.smart_chunk(response):
+                await message.channel.send(chunk)
+
+    def smart_chunk(self, text, max_length=2000):
+        return textwrap.wrap(
+            text,
+            width=max_length,
+            break_long_words=False,
+            break_on_hyphens=False,
         )
 
     async def generate_ai_response(
@@ -79,7 +67,6 @@ class AI(commands.Cog):
             }
         ]
 
-        # Build message history in order
         for user_msg, bot_resp in rows[-6:]:
             messages.append({"role": "user", "content": user_msg})
             messages.append({"role": "assistant", "content": bot_resp})
@@ -114,4 +101,4 @@ class AI(commands.Cog):
 
 
 async def setup(bot):
-    await bot.add_cog(AI(bot))
+    await bot.add_cog(AIResponse(bot))

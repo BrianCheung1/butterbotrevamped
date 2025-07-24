@@ -16,6 +16,7 @@ from .steal_db import StealDatabaseManager
 from .steam_games_db import SteamGamesDatabaseManager
 from .user_db import UserDatabaseManager
 from .work_db import WorkDatabaseManager
+from .message_logger_db import MessageLoggerDatabaseManager
 
 logger = setup_logger("DatabaseManagerBase")
 
@@ -55,6 +56,8 @@ class DatabaseManager:
 
         # Reminders Database
         self.reminders_db = RemindersDatabaseManager(connection)
+
+        self.message_db = MessageLoggerDatabaseManager(connection)
 
     async def _create_user_if_not_exists(self, user_id: int) -> None:
         async with self.connection.execute(

@@ -170,7 +170,8 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     interest_channel_id INTEGER,
     patchnotes_channel_id INTEGER,
     steam_games_channel_id INTEGER,
-    leaderboard_announcements_channel_id INTEGER
+    leaderboard_announcements_channel_id INTEGER,
+    mod_log_channel_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS interactions (
@@ -217,4 +218,18 @@ CREATE TABLE IF NOT EXISTS reminders (
     reminder TEXT NOT NULL,
     remind_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS message_logs (
+    message_id INTEGER PRIMARY KEY,         -- Discord message ID (unique per message)
+    guild_id INTEGER NOT NULL,               -- Guild where the message was sent
+    channel_id INTEGER NOT NULL,             -- Channel where the message was sent
+    author_id INTEGER NOT NULL,              -- User who sent the message
+    content TEXT,                           -- Original message content
+    attachments TEXT,                       -- JSON-encoded list of attachment URLs
+    created_at TIMESTAMP NOT NULL,          -- When message was originally created
+    deleted_at TIMESTAMP DEFAULT NULL,      -- When message was deleted (NULL if not deleted)
+    edited_before TEXT DEFAULT NULL,         -- Message content before edit (NULL if not edited)
+    edited_after TEXT DEFAULT NULL,          -- Message content after edit (NULL if not edited)
+    edited_at TIMESTAMP DEFAULT NULL         -- When the message was last edited
 );
