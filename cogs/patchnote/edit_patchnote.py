@@ -18,7 +18,7 @@ class EditPatchNote(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="patchnotes-edit",
+        name="patchnote-edit",
         description="Edit a patch note by its visible number",
     )
     @app_commands.describe(

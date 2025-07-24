@@ -5,13 +5,9 @@ from typing import List, Optional
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from utils.channels import broadcast_embed_to_guilds  # Import your helper here
-from utils.valorant_helpers import (
-    get_player_mmr,
-    get_rank_value,
-    name_autocomplete,
-    tag_autocomplete,
-)
+from utils.channels import broadcast_embed_to_guilds
+from utils.valorant_helpers import (get_player_mmr, get_rank_value,
+                                    name_autocomplete, tag_autocomplete)
 
 
 class ValorantLeaderboard(commands.Cog):
@@ -20,15 +16,118 @@ class ValorantLeaderboard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.rate_semaphore = asyncio.Semaphore(5)
-        self.periodic_mmr_update_loop.start()
-        self.daily_leaderboard_task.start()
+        self.daily_leaderboard_task = self.bot.loop.create_task(
+            self.start_daily_leaderboard_loop()
+        )
+        self.periodic_mmr_update_task = self.bot.loop.create_task(
+            self.periodic_mmr_update_loop()
+        )
 
     def cog_unload(self):
-        self.periodic_mmr_update_loop.cancel()
-        self.daily_leaderboard_task.cancel()
+        if self.daily_leaderboard_task:
+            self.daily_leaderboard_task.cancel()
+        if self.periodic_mmr_update_task:
+            self.periodic_mmr_update_task.cancel()
 
-    @tasks.loop(hours=24)
+    async def start_daily_leaderboard_loop(self):
+        await self.bot.wait_until_ready()
+
+        while not self.bot.is_closed():
+            now = datetime.now(timezone.utc)
+            next_midnight = (now + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            wait_seconds = (next_midnight - now).total_seconds()
+
+            self.bot.logger.info(
+                f"[Valorant Leaderboard] Sleeping {wait_seconds:.0f}s until next 12:00 AM UTC broadcast"
+            )
+
+            await asyncio.sleep(wait_seconds)
+
+            try:
+                await self.send_daily_leaderboards()
+                self.bot.logger.info("Daily leaderboard sent.")
+            except Exception as e:
+                self.bot.logger.error(f"Error sending leaderboard: {e}")
+
+            await asyncio.sleep(1)  # Avoid tight loop
+
+    async def send_daily_leaderboards(self):
+        leaderboard_data = [
+            {
+                "name": n,
+                "tag": t,
+                "rank": p["rank"],
+                "elo": p["elo"],
+            }
+            for (n, t), p in self.bot.valorant_players.items()
+            if p["rank"].lower() != "unrated"
+        ]
+
+        leaderboard_data.sort(
+            key=lambda x: (get_rank_value(x["rank"]), x["elo"]), reverse=True
+        )
+
+        view = ValorantLeaderboardView(
+            leaderboard_data, interaction=None, timeout=86400
+        )
+        embed = view.generate_embed()
+
+        await broadcast_embed_to_guilds(
+            self.bot, "leaderboard_announcements_channel_id", embed, view=view
+        )
+
     async def periodic_mmr_update_loop(self):
+        """Custom periodic loop waking at fixed times: 00:00, 06:00, 12:00, 18:00 UTC"""
+        await self.bot.wait_until_ready()
+        scheduled_hours = [0, 6, 12, 18]  # UTC hours to run at
+
+        while not self.bot.is_closed():
+            now = datetime.utcnow()
+            # Find the next scheduled hour after 'now'
+            next_run_hour = None
+            for h in scheduled_hours:
+                if h > now.hour or (
+                    h == now.hour and now.minute == 0 and now.second == 0
+                ):
+                    next_run_hour = h
+                    break
+            if next_run_hour is None:
+                # Next run is tomorrow's first scheduled hour
+                next_run_hour = scheduled_hours[0]
+                next_run_day = now.date() + timedelta(days=1)
+            else:
+                next_run_day = now.date()
+
+            next_run = datetime(
+                year=next_run_day.year,
+                month=next_run_day.month,
+                day=next_run_day.day,
+                hour=next_run_hour,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+
+            wait_seconds = (next_run - now).total_seconds()
+            if wait_seconds <= 0:
+                # Safety fallback to avoid negative or zero sleep
+                wait_seconds = 1
+
+            self.bot.logger.info(
+                f"[Valorant MMR Update] Sleeping {wait_seconds:.0f}s until next run at {next_run} UTC"
+            )
+            await asyncio.sleep(wait_seconds)
+
+            try:
+                await self.run_mmr_update()
+            except Exception as e:
+                self.bot.logger.error(f"Error during periodic MMR update: {e}")
+
+    async def run_mmr_update(self):
+        """The main MMR update logic, refactored from your original periodic_mmr_update_loop"""
+
         self.bot.logger.info("Starting MMR update cycle...")
 
         players = await self.bot.database.players_db.get_all_player_mmr()
@@ -56,7 +155,7 @@ class ValorantLeaderboard(commands.Cog):
                     if isinstance(last_updated, str):
                         last_updated = datetime.fromisoformat(last_updated)
 
-                    if datetime.utcnow() - last_updated >= timedelta(minutes=60):
+                    if datetime.utcnow() - last_updated >= timedelta(minutes=120):
                         eligible_batch.append(player)
                         processed_details.append(
                             f"{player['name']}#{player['tag']} (Last updated: {last_updated})"
@@ -87,7 +186,6 @@ class ValorantLeaderboard(commands.Cog):
             for player, result in zip(eligible_batch, results):
                 name, tag = player["name"], player["tag"]
 
-                # Handle 404 (player no longer exists)
                 if result == "not_found":
                     self.bot.logger.info(
                         f"Deleting {name}#{tag} from DB (404 not found)."
@@ -122,37 +220,30 @@ class ValorantLeaderboard(commands.Cog):
                         )
 
             if eligible_batch:
-                await asyncio.sleep(60)  # wait 60s between batches
+                # Respect rate limit, sleep 60 seconds after each batch
+                await asyncio.sleep(60)
 
         self.bot.logger.info(
-            f"Finished MMR update cycle. Updated: {updated_players}, Skipped: {skipped_players} "
+            f"Finished MMR update cycle. Updated: {updated_players}, Skipped: {skipped_players}"
         )
         if updated_players > 0:
-            self.bot.logger.info(
-                f"Updated players due to recent update: {', '.join(processed_details)}"
-            )
+            self.bot.logger.info(f"Updated players: {', '.join(processed_details)}")
         if skipped_players > 0:
-            self.bot.logger.info(
-                f"Skipped players due to recent update: {', '.join(skipped_details)}"
-            )
+            self.bot.logger.info(f"Skipped players: {', '.join(skipped_details)}")
 
     async def fetch_player_mmr(self, name: str, tag: str, region: str = "na"):
         async with self.rate_semaphore:
             data = await get_player_mmr(name.lower(), tag.lower(), region)
 
-            if not data:
-                return "not_found"
-
-            if isinstance(data, dict) and data.get("status") == 404:
+            if not data or (isinstance(data, dict) and data.get("status") == 404):
                 return "not_found"
 
             if "data" in data:
                 current = data["data"].get("current", {})
-
                 games_needed = current.get("games_needed_for_rating", 0)
+
                 if games_needed > 0:
-                    rank = "Unrated"
-                    elo = 0
+                    rank, elo = "Unrated", 0
                 else:
                     rank = current.get("tier", {}).get("name", "Unknown")
                     elo = current.get("rr", 0)
@@ -160,35 +251,6 @@ class ValorantLeaderboard(commands.Cog):
                 return {"name": name, "tag": tag, "rank": rank, "elo": elo}
 
         return None
-
-    @tasks.loop(minutes=1)
-    async def daily_leaderboard_task(self):
-        now = datetime.now(timezone.utc)
-        if now.hour == 0 and now.minute == 0:
-            await self.send_daily_leaderboards()
-
-    async def send_daily_leaderboards(self):
-        leaderboard_data = [
-            {
-                "name": n,
-                "tag": t,
-                "rank": p["rank"],
-                "elo": p["elo"],
-            }
-            for (n, t), p in self.bot.valorant_players.items()
-            if p["rank"].lower() != "unrated"
-        ]
-
-        leaderboard_data.sort(
-            key=lambda x: (get_rank_value(x["rank"]), x["elo"]), reverse=True
-        )
-
-        view = ValorantLeaderboardView(leaderboard_data, interaction=None)
-        embed = view.generate_embed()
-
-        await broadcast_embed_to_guilds(
-            self.bot, "leaderboard_announcements_channel_id", embed, view=view
-        )
 
     @app_commands.command(
         name="valorant-leaderboard", description="View the Valorant leaderboard."
@@ -246,9 +308,12 @@ class ValorantLeaderboard(commands.Cog):
 
 class ValorantLeaderboardView(discord.ui.View):
     def __init__(
-        self, data: List[dict], interaction: Optional[discord.Interaction] = None
+        self,
+        data: List[dict],
+        interaction: Optional[discord.Interaction] = None,
+        timeout: float = 300,
     ):
-        super().__init__(timeout=300)
+        super().__init__(timeout=timeout)
         self.data = data
         self.interaction = interaction
         self.page = 0
@@ -258,6 +323,15 @@ class ValorantLeaderboardView(discord.ui.View):
         self.prev_button.disabled = True
         if self.max_page == 0:
             self.next_button.disabled = True
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.interaction:
+            try:
+                await self.interaction.edit_original_response(view=self)
+            except discord.HTTPException:
+                pass
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if self.interaction is None:
@@ -274,12 +348,11 @@ class ValorantLeaderboardView(discord.ui.View):
             for i, p in enumerate(leaderboard_slice, start=start + 1)
         )
 
-        embed = discord.Embed(
+        return discord.Embed(
             title=f"Valorant Leaderboard (Page {self.page + 1}/{self.max_page + 1})",
             description=leaderboard_str or "No data available.",
             color=discord.Color.red(),
         )
-        return embed
 
     @discord.ui.button(label="⬅ Previous", style=discord.ButtonStyle.gray)
     async def prev_button(

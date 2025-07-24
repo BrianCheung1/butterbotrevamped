@@ -11,7 +11,7 @@ class ViewPatchNote(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="patchnotes-view", description="View saved patch notes")
+    @app_commands.command(name="patchnote-view", description="View saved patch notes")
     @app_commands.describe(
         patch_number="(Optional) Patch number to view (e.g., 1 for latest)"
     )
@@ -59,6 +59,12 @@ class ViewPatchNote(commands.Cog):
                 embed.set_image(url=entry["image_url"])
 
             await interaction.followup.send(embed=embed)
+            if interaction.user.id == entry["author_id"]:
+                raw_changes = entry["changes"].strip()
+                await interaction.followup.send(
+                    f"📝 Here's your unformatted patch note for editing:\n```\n{raw_changes}\n```",
+                    ephemeral=True,
+                )
         else:
             # Show all patch notes with pagination
             view = PatchNotesView(entries, interaction.user)

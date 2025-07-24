@@ -5,13 +5,9 @@ from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.valorant_helpers import (
-    convert_to_datetime,
-    fetch_val_api,
-    name_autocomplete,
-    parse_season,
-    tag_autocomplete,
-)
+from utils.valorant_helpers import (convert_to_datetime, fetch_val_api,
+                                    name_autocomplete, parse_season,
+                                    tag_autocomplete)
 
 
 class ValorantStats(commands.Cog):

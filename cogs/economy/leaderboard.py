@@ -1,9 +1,10 @@
-from datetime import datetime, timezone
+import asyncio
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands, tasks
+from discord.ext import commands
 from utils.formatting import format_number
 
 
@@ -15,9 +16,10 @@ class LeaderboardView(discord.ui.View):
         interaction: Optional[discord.Interaction] = None,
         *,
         open_access: bool = False,
-        guild: Optional[discord.Guild] = None,  # New parameter
+        guild: Optional[discord.Guild] = None,
+        timeout: float = 300,
     ):
-        super().__init__(timeout=60)
+        super().__init__(timeout=timeout)
         self.guild = guild or (interaction.guild if interaction else None)
 
         # Filter to only include members still in the guild if guild is known
@@ -28,7 +30,6 @@ class LeaderboardView(discord.ui.View):
                 if (member := self.guild.get_member(row["user_id"])) and not member.bot
             ]
         else:
-            # If no guild, use data as is
             self.data = data
 
         self.leaderboard_type = leaderboard_type
@@ -40,9 +41,18 @@ class LeaderboardView(discord.ui.View):
         )
         self.open_access = open_access
 
-        self.prev_button.disabled = True  # Disable prev initially
+        self.prev_button.disabled = True
         if self.max_page == 0:
             self.next_button.disabled = True
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.interaction:
+            try:
+                await self.interaction.edit_original_response(view=self)
+            except discord.HTTPException:
+                pass
 
     def generate_embed(self) -> discord.Embed:
         start = self.page * self.entries_per_page
@@ -83,7 +93,6 @@ class LeaderboardView(discord.ui.View):
     async def prev_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        # Allow all users if open_access=True, else restrict to original user only
         if not self.open_access and interaction.user != getattr(
             self.interaction, "user", None
         ):
@@ -92,9 +101,8 @@ class LeaderboardView(discord.ui.View):
             )
             return
 
-        self.page -= 1
-        if self.page == 0:
-            button.disabled = True
+        self.page = max(self.page - 1, 0)
+        self.prev_button.disabled = self.page == 0
         self.next_button.disabled = False
 
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
@@ -111,9 +119,8 @@ class LeaderboardView(discord.ui.View):
             )
             return
 
-        self.page += 1
-        if self.page == self.max_page:
-            button.disabled = True
+        self.page = min(self.page + 1, self.max_page)
+        self.next_button.disabled = self.page == self.max_page
         self.prev_button.disabled = False
 
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
@@ -128,20 +135,40 @@ class Leaderboard(commands.Cog):
             "fishing_level",
             "bank_balance",
         ]
-        self.daily_leaderboard_task.start()
+        self.daily_leaderboard_task = self.bot.loop.create_task(
+            self.start_daily_leaderboard_loop()
+        )
 
     def cog_unload(self):
-        self.daily_leaderboard_task.cancel()
+        if self.daily_leaderboard_task:
+            self.daily_leaderboard_task.cancel()
 
-    @tasks.loop(minutes=1)
-    async def daily_leaderboard_task(self):
-        now = datetime.now(timezone.utc)
-        if now.hour == 0 and now.minute == 0:
-            await self.send_daily_leaderboards()
+    async def start_daily_leaderboard_loop(self):
+        await self.bot.wait_until_ready()
+
+        while not self.bot.is_closed():
+            now = datetime.now(timezone.utc)
+            next_midnight = (now + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            wait_seconds = (next_midnight - now).total_seconds()
+
+            self.bot.logger.info(
+                f"[Leaderboard] Sleeping {wait_seconds:.0f}s until next 12:00 AM UTC broadcast"
+            )
+
+            await asyncio.sleep(wait_seconds)
+
+            try:
+                await self.send_daily_leaderboards()
+                self.bot.logger.info("[Leaderboard] Daily leaderboard sent.")
+            except Exception as e:
+                self.bot.logger.error(f"[Leaderboard] Failed to send leaderboard: {e}")
+
+            await asyncio.sleep(1)
 
     async def send_daily_leaderboards(self):
         for guild in self.bot.guilds:
-            # Retrieve the leaderboard announcements channel ID from your guild database
             channel_id = await self.bot.database.guild_db.get_channel(
                 guild_id=guild.id,
                 channel_type="leaderboard_announcements_channel_id",
@@ -160,8 +187,10 @@ class Leaderboard(commands.Cog):
                     lb_type,
                     interaction=None,
                     open_access=True,
-                    guild=guild,  # Pass guild here for member lookup
+                    guild=guild,
+                    timeout=86400,
                 )
+
                 embed = view.generate_embed()
                 try:
                     await channel.send(embed=embed, view=view)

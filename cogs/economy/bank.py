@@ -4,7 +4,7 @@ from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands, tasks
+from discord.ext import commands
 from utils.balance_helper import calculate_percentage_amount, validate_amount
 from utils.channels import broadcast_embed_to_guilds
 from utils.formatting import format_number
@@ -13,21 +13,44 @@ from utils.formatting import format_number
 class Bank(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.daily_interest_task.start()
+        # Start background interest loop manually
+        self.daily_interest_task = self.bot.loop.create_task(self.daily_interest_loop())
 
     def cog_unload(self):
-        self.daily_interest_task.cancel()
+        # Cancel the background task when cog unloads
+        if self.daily_interest_task:
+            self.daily_interest_task.cancel()
 
-    def seconds_until_next_utc_midnight(self) -> float:
-        now = datetime.now(timezone.utc)
-        tomorrow_midnight = (now + timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        return (tomorrow_midnight - now).total_seconds()
-
-    @tasks.loop(hours=24)
-    async def daily_interest_task(self):
+    async def daily_interest_loop(self):
         await self.bot.wait_until_ready()
+
+        while not self.bot.is_closed():
+            now = datetime.now(timezone.utc)
+            next_midnight = (now + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            wait_seconds = (next_midnight - now).total_seconds()
+
+            self.bot.logger.info(
+                f"[Bank] Sleeping {wait_seconds:.0f}s until next 12:00 AM UTC interest update"
+            )
+
+            try:
+                await asyncio.sleep(wait_seconds)
+            except asyncio.CancelledError:
+                # Task cancelled, break loop to allow cog unload cleanly
+                break
+
+            try:
+                await self.apply_daily_interest()
+                self.bot.logger.info("[Bank] Daily interest applied successfully.")
+            except Exception as e:
+                self.bot.logger.error(f"[Bank] Failed to apply daily interest: {e}")
+
+            # Small delay before next loop iteration
+            await asyncio.sleep(1)
+
+    async def apply_daily_interest(self):
         user_ids = await self.bot.database.bank_db.get_all_bank_users()
         interest_rate = 0.001
         user_count = 0
@@ -66,12 +89,6 @@ class Bank(commands.Cog):
         self.bot.logger.info(
             f"💸 Daily interest applied for {user_count} users at 12:00 AM UTC."
         )
-
-    @daily_interest_task.before_loop
-    async def before_daily_interest_task(self):
-        seconds = self.seconds_until_next_utc_midnight()
-        self.bot.logger.info(f"Waiting {seconds:.2f} seconds until next 12:00 AM UTC.")
-        await asyncio.sleep(seconds)
 
     def build_bank_embed(
         self, user: discord.User, bank_stats: dict, bank_balance: int
@@ -129,8 +146,6 @@ class Bank(commands.Cog):
             app_commands.Choice(name="25%", value="25%"),
         ]
     )
-    @app_commands.allowed_installs(guilds=True, users=True)
-    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def deposit(
         self,
         interaction: discord.Interaction,
@@ -206,8 +221,6 @@ class Bank(commands.Cog):
             app_commands.Choice(name="25%", value="25%"),
         ]
     )
-    @app_commands.allowed_installs(guilds=True, users=True)
-    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def withdraw(
         self,
         interaction: discord.Interaction,

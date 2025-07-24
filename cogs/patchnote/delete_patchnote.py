@@ -14,7 +14,7 @@ class DeletePatchNote(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="patchnotes-delete",
+        name="patchnote-delete",
         description="Delete a patch note by its visible number",
     )
     @app_commands.describe(

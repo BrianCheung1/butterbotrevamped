@@ -16,7 +16,9 @@ class AddPatchNote(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="patchnotes", description="Add and display patch notes")
+    @app_commands.command(
+        name="patchnote-add", description="Add and display patch notes"
+    )
     @app_commands.describe(changes="Separate each change with a ';'")
     @app_commands.check(is_owner_check)
     @app_commands.guilds(DEV_GUILD_ID)
