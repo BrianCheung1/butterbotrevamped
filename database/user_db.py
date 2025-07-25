@@ -114,3 +114,51 @@ class UserDatabaseManager:
             )
 
         await self.connection.commit()
+
+    @db_error_handler
+    async def set_daily_reminder_date(self, user_id: int, date_str: str) -> None:
+        """
+        Set the date when the daily reminder was sent to the user.
+
+        :param user_id: The ID of the user.
+        :param date_str: The date string in 'YYYY-MM-DD' format representing when reminder was sent.
+        """
+        await self.db_manager._create_user_if_not_exists(user_id)
+        await self.connection.execute(
+            """
+            UPDATE users
+            SET daily_reminder_sent_date = ?
+            WHERE user_id = ?
+            """,
+            (date_str, user_id),
+        )
+        await self.connection.commit()
+
+    @db_error_handler
+    async def get_all_daily_users(
+        self,
+    ) -> list[tuple[int, int, str | None, str | None]]:
+        """
+        Retrieve all users with daily streak, last claim timestamp, and reminder date.
+
+        :return: List of tuples: (user_id, daily_streak, last_daily_at, daily_reminder_sent_date)
+        """
+        async with self.connection.execute(
+            """
+            SELECT user_id, daily_streak, last_daily_at, daily_reminder_sent_date
+            FROM users
+            WHERE daily_streak > 0
+            """
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        # Return list of tuples for ease of use
+        return [
+            (
+                row["user_id"],
+                row["daily_streak"],
+                row["last_daily_at"],
+                row["daily_reminder_sent_date"],
+            )
+            for row in rows
+        ]

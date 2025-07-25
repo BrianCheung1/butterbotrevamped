@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     balance INTEGER DEFAULT 0,
     daily_streak INTEGER DEFAULT 0,
-    last_daily_at TIMESTAMP DEFAULT NULL
+    last_daily_at TIMESTAMP DEFAULT NULL,
+    daily_reminder_sent_date DATE DEFAULT NULL
 );
 
 -- User Game Stats Table

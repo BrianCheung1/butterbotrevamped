@@ -37,3 +37,28 @@ async def broadcast_embed_to_guilds(
             bot.logger.error(
                 f"Failed to send embed to {channel.name} ({channel.id}) in guild {guild.name} ({guild.id}): {e}"
             )
+
+
+async def send_to_mod_log(bot, guild: discord.Guild, embed: discord.Embed):
+    if not guild:
+        return
+
+    try:
+        mod_log_id = await bot.database.guild_db.get_channel(
+            guild.id, "mod_log_channel_id"
+        )
+        if not mod_log_id:
+            return
+
+        channel = guild.get_channel(mod_log_id)
+        if not channel:
+            return
+
+        await channel.send(embed=embed)
+
+    except discord.Forbidden:
+        bot.logger.warning(
+            f"Missing permissions to send to mod log in guild {guild.id}."
+        )
+    except Exception as e:
+        bot.logger.error(f"Failed to send mod log message in guild {guild.id}: {e}")

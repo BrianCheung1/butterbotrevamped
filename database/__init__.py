@@ -8,6 +8,7 @@ from .game_db import GameDatabaseManager
 from .guild_db import GuildSettingsDatabaseManager
 from .heist_db import HeistDatabaseManager
 from .inventory_db import InventoryDatabaseManager
+from .message_logger_db import MessageLoggerDatabaseManager
 from .movies_db import MoviesDatabaseManager
 from .patch_notes_db import PatchNotesDatabaseManager
 from .players_db import PlayersDatabaseManager
@@ -16,7 +17,6 @@ from .steal_db import StealDatabaseManager
 from .steam_games_db import SteamGamesDatabaseManager
 from .user_db import UserDatabaseManager
 from .work_db import WorkDatabaseManager
-from .message_logger_db import MessageLoggerDatabaseManager
 
 logger = setup_logger("DatabaseManagerBase")
 

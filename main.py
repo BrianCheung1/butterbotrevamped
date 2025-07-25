@@ -88,6 +88,8 @@ class MyBot(commands.Bot):
                 f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
             )
         )
+        activity = discord.Game(name="Butterbot")
+        await self.change_presence(status=discord.Status.online, activity=activity)
         self.valorant_players = await load_cached_players_from_db(
             self.database.players_db
         )
