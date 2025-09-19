@@ -60,6 +60,23 @@ def calculate_hand_value(hand):
     return value
 
 
+def get_card_value_for_split(card):
+    """Get the numeric value of a card for split comparison"""
+    if card in ["J", "Q", "K"]:
+        return 10
+    elif card == "A":
+        return 1  # Aces are considered equal for splitting
+    else:
+        return int(card)
+
+
+def can_split(hand):
+    """Check if a hand can be split (two cards of same value)"""
+    if len(hand) != 2:
+        return False
+    return get_card_value_for_split(hand[0]) == get_card_value_for_split(hand[1])
+
+
 def update_stats(stats, won, lost):
     stats["blackjacks_played"] += 1
     if won:
@@ -76,44 +93,55 @@ def is_soft_17(hand):
     )
 
 
+def is_blackjack(hand):
+    """Check if hand is a natural blackjack (21 with 2 cards)"""
+    return len(hand) == 2 and calculate_hand_value(hand) == 21
+
+
 def create_result_embed(
     color,
-    player_hand,
+    hands_info,  # List of (hand, outcome, result_text) tuples
     dealer_hand,
-    outcome,
+    total_outcome,
     prev_balance,
-    result_text,
     stats,
     display_bet,
 ):
     embed = discord.Embed(
         title="Blackjack Results",
-        description=f"Bet Amount: ${format_number(display_bet)}",
+        description=f"Original Bet: ${format_number(display_bet)}",
         color=color,
     )
-    embed.add_field(
-        name=f"Your final hand ({calculate_hand_value(player_hand)})",
-        value=format_hand(player_hand),
-        inline=False,
-    )
+
+    # Add each hand
+    for i, (hand, outcome, result_text) in enumerate(hands_info):
+        hand_name = f"Hand {i+1}" if len(hands_info) > 1 else "Your hand"
+        embed.add_field(
+            name=f"{hand_name} ({calculate_hand_value(hand)})",
+            value=f"{format_hand(hand)}\n{result_text} ${format_number(abs(outcome))}",
+            inline=True,
+        )
+
     embed.add_field(
         name=f"Dealer's hand ({calculate_hand_value(dealer_hand)})",
         value=format_hand(dealer_hand),
         inline=False,
     )
+
     embed.add_field(
-        name="Prev Balance", value=f"${format_number(prev_balance)}", inline=True
+        name="Previous Balance", value=f"${format_number(prev_balance)}", inline=True
     )
     embed.add_field(
         name="Current Balance",
-        value=f"${format_number(prev_balance + outcome)}",
+        value=f"${format_number(prev_balance + total_outcome)}",
         inline=True,
     )
     embed.add_field(
-        name="Result",
-        value=f"{result_text} ${format_number(abs(outcome))}",
+        name="Total Result",
+        value=f"{'Won' if total_outcome > 0 else 'Lost' if total_outcome < 0 else 'Push'} ${format_number(abs(total_outcome))}",
         inline=True,
     )
+
     embed.set_footer(
         text=f"Blackjacks Won: {stats['blackjacks_won']} | "
         f"Blackjacks Lost: {stats['blackjacks_lost']} | "
@@ -190,19 +218,24 @@ class Blackjack(commands.Cog):
 
 
 class BlackjackView(discord.ui.View):
-    def __init__(self, bot, user_id, deck, player_hand, dealer_hand, amount, stats):
+    def __init__(self, bot, user_id, deck, hands, dealer_hand, bet_per_hand, stats):
         super().__init__(timeout=180)
         self.bot = bot
         self.user_id = user_id
         self.deck = deck
-        self.player_hand = player_hand
+        self.hands = hands  # List of hands (for splits)
         self.dealer_hand = dealer_hand
-        self.original_amount = amount
-        self.amount = amount
+        self.original_bet = bet_per_hand
+        self.bets = [bet_per_hand] * len(hands)  # Bet for each hand
+        self.current_hand = 0  # Which hand is currently being played
         self.interaction = None
-        self.standing = False
         self.stats = stats
         self.message = None
+        self.first_move_done = [False] * len(hands)  # Track first move for each hand
+        self.hand_finished = [False] * len(hands)  # Track which hands are finished
+        self.split_aces = any(
+            "A" in hand for hand in hands if len(hands) > 1
+        )  # Track if we split aces
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -215,133 +248,370 @@ class BlackjackView(discord.ui.View):
 
     async def on_timeout(self):
         self.bot.active_blackjack_players.discard(self.user_id)
+        total_bet = sum(self.bets)
+
         if self.interaction:
             await self.interaction.edit_original_response(
-                content=f"⏰ Game timed out due to inactivity. You lost your bet of ${format_number(self.amount)}.",
+                content=f"⏰ Game timed out due to inactivity. You lost your bet of ${format_number(total_bet)}.",
                 view=None,
             )
         elif self.message:
             await self.message.edit(
-                content=f"⏰ Game timed out due to inactivity. You lost your bet of ${format_number(self.amount)}.",
+                content=f"⏰ Game timed out due to inactivity. You lost your bet of ${format_number(total_bet)}.",
                 embed=None,
                 view=None,
             )
 
-        # Apply consequences (loss of bet and update stats)
-        # await self.bot.database.user_db.set_balance(
-        #     self.user_id, current_balance - self.amount
-        # )
-        await self.bot.database.user_db.increment_balance(self.user_id, -self.amount)
+        await self.bot.database.user_db.increment_balance(self.user_id, -total_bet)
         await self.bot.database.game_db.set_user_game_stats(
-            self.user_id, GameEventType.BLACKJACK, False, self.amount
+            self.user_id, GameEventType.BLACKJACK, False, total_bet
         )
 
-    @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary, row=0)
     async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.player_hand.append(draw_card(self.deck))
-        player_value = calculate_hand_value(self.player_hand)
+        current_hand = self.hands[self.current_hand]
+
+        # If we split aces, only one card per hand is allowed
+        if self.split_aces and len(self.hands) > 1:
+            await interaction.response.send_message(
+                "You cannot hit after splitting aces!", ephemeral=True
+            )
+            return
+
+        # If hand has natural 21, cannot hit
+        if len(current_hand) == 2 and calculate_hand_value(current_hand) == 21:
+            await interaction.response.send_message(
+                "You cannot hit on a natural 21!", ephemeral=True
+            )
+            return
+
+        self.first_move_done[self.current_hand] = True
+        self.hands[self.current_hand].append(draw_card(self.deck))
+        player_value = calculate_hand_value(self.hands[self.current_hand])
 
         if player_value > 21:
-            await self.end_game(interaction)
+            self.hand_finished[self.current_hand] = True
+            await self.next_hand_or_finish(interaction)
+        elif player_value == 21:
+            # Auto-finish on 21 (but not natural blackjack since we already have 3+ cards)
+            self.hand_finished[self.current_hand] = True
+            await self.next_hand_or_finish(interaction)
         else:
             await self.update_game(interaction)
 
-    @discord.ui.button(label="Stand", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Stand", style=discord.ButtonStyle.secondary, row=0)
     async def stand(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.standing = True
-        await self.end_game(interaction)
+        self.first_move_done[self.current_hand] = True
+        self.hand_finished[self.current_hand] = True
+        await self.next_hand_or_finish(interaction)
 
-    @discord.ui.button(label="Double Down", style=discord.ButtonStyle.success)
+    # Row 2: Special actions
+    @discord.ui.button(label="Double Down", style=discord.ButtonStyle.success, row=1)
     async def double_down(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         current_balance = await self.bot.database.user_db.get_balance(self.user_id)
 
-        if self.amount * 2 > current_balance:
+        if self.bets[self.current_hand] * 2 > current_balance:
             await interaction.response.send_message(
-                f"You don't have enough balance to double down.\nCurrent Balance: ${format_number(current_balance)}\nCurrent Bet: ${format_number(self.amount)}",
+                f"You don't have enough balance to double down.\nCurrent Balance: ${format_number(current_balance)}\nCurrent Bet: ${format_number(self.bets[self.current_hand])}",
                 ephemeral=True,
             )
             return
 
-        if len(self.player_hand) != 2:
+        if len(self.hands[self.current_hand]) != 2:
             await interaction.response.send_message(
                 "You can only double down on your first move.", ephemeral=True
             )
             return
 
-        self.amount *= 2
-        self.player_hand.append(draw_card(self.deck))
+        # If we split aces, cannot double down
+        if self.split_aces and len(self.hands) > 1:
+            await interaction.response.send_message(
+                "You cannot double down after splitting aces!", ephemeral=True
+            )
+            return
 
-        await self.end_game(interaction)
+        self.bets[self.current_hand] *= 2
+        self.hands[self.current_hand].append(draw_card(self.deck))
+        self.hand_finished[self.current_hand] = True
 
-    async def update_game(self, interaction):
-        embed = discord.Embed(title="Blackjack", color=discord.Color.blue())
-        embed.add_field(
-            name=f"Your hand {calculate_hand_value(self.player_hand)}",
-            value=format_hand(self.player_hand),
-        )
-        embed.add_field(
-            name=f"Dealer shows {calculate_hand_value(self.dealer_hand[0])}",
-            value=f"{EMOJI_MAP.get(self.dealer_hand[0])} ❓",
-            inline=False,
-        )
-        await interaction.response.edit_message(embed=embed, view=self)
+        await self.next_hand_or_finish(interaction)
 
-    async def end_game(self, interaction):
+    @discord.ui.button(label="Split", style=discord.ButtonStyle.blurple, row=1)
+    async def split(self, interaction: discord.Interaction, button: discord.ui.Button):
         current_balance = await self.bot.database.user_db.get_balance(self.user_id)
-        player_value = calculate_hand_value(self.player_hand)
-        dealer_value = calculate_hand_value(self.dealer_hand)
-        prev_balance = current_balance
-        busted = False
-        if player_value > 21:
-            busted = True
-        while not busted and (dealer_value < 17 or is_soft_17(self.dealer_hand)):
-            self.dealer_hand.append(draw_card(self.deck))
-            dealer_value = calculate_hand_value(self.dealer_hand)
 
-        # Determine outcome
-        if busted or player_value > 21:
-            result_text = "You busted! 💥 Dealer wins"
-            won, lost = False, True
-            outcome = -self.amount
-            color = discord.Color.red()
-        elif dealer_value > 21 or player_value > dealer_value:
-            result_text = "🎉You win"
-            won, lost = True, False
-            outcome = self.amount
-            color = discord.Color.green()
-        elif player_value < dealer_value:
-            result_text = "😞 Dealer wins"
-            won, lost = False, True
-            outcome = -self.amount
-            color = discord.Color.red()
+        # Check if we can split
+        if not can_split(self.hands[self.current_hand]):
+            await interaction.response.send_message(
+                "You can only split pairs!", ephemeral=True
+            )
+            return
+
+        if len(self.hands[self.current_hand]) != 2:
+            await interaction.response.send_message(
+                "You can only split on your first move.", ephemeral=True
+            )
+            return
+
+        if len(self.hands) >= 4:  # Most casinos allow max 4 hands
+            await interaction.response.send_message(
+                "You can only split up to 4 hands!", ephemeral=True
+            )
+            return
+
+        if self.bets[self.current_hand] > current_balance:
+            await interaction.response.send_message(
+                f"You don't have enough balance to split.\nCurrent Balance: ${format_number(current_balance)}\nRequired: ${format_number(self.bets[self.current_hand])}",
+                ephemeral=True,
+            )
+            return
+
+        # Perform the split
+        original_hand = self.hands[self.current_hand]
+        card1, card2 = original_hand[0], original_hand[1]
+
+        # Create two new hands
+        self.hands[self.current_hand] = [card1, draw_card(self.deck)]
+        new_hand = [card2, draw_card(self.deck)]
+
+        # Insert the new hand after current hand
+        self.hands.insert(self.current_hand + 1, new_hand)
+        self.bets.insert(self.current_hand + 1, self.bets[self.current_hand])
+        self.first_move_done.insert(self.current_hand + 1, False)
+        self.hand_finished.insert(self.current_hand + 1, False)
+
+        # Check if we split aces (affects future moves)
+        if card1 == "A":
+            self.split_aces = True
+            # After splitting aces, both hands get only one more card and are finished
+            self.hand_finished[self.current_hand] = True
+            self.hand_finished[self.current_hand + 1] = True
         else:
-            result_text = "🤝It's a tie"
-            won, lost = False, False
-            outcome = 0
-            color = discord.Color.gold()
+            # Check if either hand got natural 21 (auto-finish them)
+            if calculate_hand_value(self.hands[self.current_hand]) == 21:
+                self.hand_finished[self.current_hand] = True
+            if calculate_hand_value(new_hand) == 21:
+                self.hand_finished[self.current_hand + 1] = True
 
-        update_stats(self.stats, won, lost)
-        win_value = True if won else False if lost else None
+        await self.update_game(interaction)
+
+    # Row 3: Exit option
+    @discord.ui.button(label="Fold", style=discord.ButtonStyle.danger, row=2)
+    async def fold(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Fold loses half of the current hand's bet
+        half_loss = self.bets[self.current_hand] // 2
+        current_balance = await self.bot.database.user_db.get_balance(self.user_id)
+
+        # Update stats (folding counts as a loss)
+        update_stats(self.stats, False, True)
+
+        hands_info = [
+            (self.hands[self.current_hand], -half_loss, "Folded - Lost half bet")
+        ]
+
         embed = create_result_embed(
-            color,
-            self.player_hand,
-            self.dealer_hand,
-            outcome,
-            prev_balance,
-            result_text,
-            self.stats,
-            display_bet=self.original_amount,
+            color=discord.Color.orange(),
+            hands_info=hands_info,
+            dealer_hand=self.dealer_hand,
+            total_outcome=-half_loss,
+            prev_balance=current_balance,
+            stats=self.stats,
+            display_bet=self.original_bet,
+        )
+
+        await self.bot.database.user_db.increment_balance(self.user_id, -half_loss)
+        await self.bot.database.game_db.set_user_game_stats(
+            self.user_id, GameEventType.BLACKJACK, False, half_loss
         )
 
         await interaction.response.edit_message(embed=embed, view=None)
-        # await self.bot.database.user_db.set_balance(
-        #     self.user_id, current_balance + outcome
-        # )
-        await self.bot.database.user_db.increment_balance(self.user_id, outcome)
+        self.bot.active_blackjack_players.discard(self.user_id)
+        self.stop()
+
+    async def next_hand_or_finish(self, interaction):
+        # If split aces, all hands are finished after first card
+        if self.split_aces and len(self.hands) > 1:
+            for i in range(len(self.hands)):
+                self.hand_finished[i] = True
+
+        # Check if current hand got natural 21 and auto-finish it
+        if (
+            self.current_hand < len(self.hands)
+            and calculate_hand_value(self.hands[self.current_hand]) == 21
+            and len(self.hands[self.current_hand]) == 2
+        ):
+            self.hand_finished[self.current_hand] = True
+
+        # Find next unfinished hand
+        next_hand = None
+        for i in range(self.current_hand + 1, len(self.hands)):
+            if not self.hand_finished[i]:
+                next_hand = i
+                break
+
+        if next_hand is not None:
+            self.current_hand = next_hand
+            await self.update_game(interaction)
+        else:
+            await self.end_game(interaction)
+
+    async def update_game(self, interaction):
+        embed = discord.Embed(title="Blackjack", color=discord.Color.blue())
+
+        # Show all hands
+        for i, hand in enumerate(self.hands):
+            status = ""
+            if i == self.current_hand and not self.hand_finished[i]:
+                status = " ← Playing"
+            elif self.hand_finished[i]:
+                status = " ✓ Finished"
+
+            hand_name = f"Hand {i+1}" if len(self.hands) > 1 else "Your hand"
+            embed.add_field(
+                name=f"{hand_name} ({calculate_hand_value(hand)}){status}",
+                value=f"{format_hand(hand)}\nBet: ${format_number(self.bets[i])}",
+                inline=True,
+            )
+
+        embed.add_field(
+            name=f"Dealer shows ({calculate_hand_value([self.dealer_hand[0]])})",
+            value=f"{EMOJI_MAP.get(self.dealer_hand[0])} ❓",
+            inline=False,
+        )
+
+        # Update button states
+        self.update_button_states()
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    def update_button_states(self):
+        current_hand = (
+            self.hands[self.current_hand] if self.current_hand < len(self.hands) else []
+        )
+
+        # Disable all buttons if current hand is finished
+        if (
+            self.current_hand >= len(self.hands)
+            or self.hand_finished[self.current_hand]
+        ):
+            for child in self.children:
+                if isinstance(child, discord.ui.Button):
+                    child.disabled = True
+            return
+
+        # Enable/disable buttons based on game state
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                if child.label == "Split":
+                    child.disabled = (
+                        not can_split(current_hand)
+                        or len(current_hand) != 2
+                        or len(self.hands) >= 4
+                        or self.split_aces
+                    )
+                elif child.label == "Double Down":
+                    child.disabled = (
+                        len(current_hand) != 2
+                        or (self.split_aces and len(self.hands) > 1)
+                        or calculate_hand_value(current_hand)
+                        == 21  # Can't double on natural 21
+                    )
+                elif child.label == "Fold":
+                    child.disabled = self.first_move_done[self.current_hand]
+                elif child.label == "Hit":
+                    child.disabled = (self.split_aces and len(self.hands) > 1) or (
+                        len(current_hand) == 2
+                        and calculate_hand_value(current_hand) == 21
+                    )  # Can't hit natural 21
+                elif child.label == "Stand":
+                    child.disabled = (
+                        False  # Stand is always available unless hand is finished
+                    )
+
+    async def end_game(self, interaction):
+        current_balance = await self.bot.database.user_db.get_balance(self.user_id)
+        prev_balance = current_balance
+
+        # Play out dealer's hand
+        dealer_value = calculate_hand_value(self.dealer_hand)
+        while dealer_value < 17 or is_soft_17(self.dealer_hand):
+            self.dealer_hand.append(draw_card(self.deck))
+            dealer_value = calculate_hand_value(self.dealer_hand)
+
+        # Calculate outcomes for each hand
+        hands_info = []
+        total_outcome = 0
+        overall_won = 0
+        overall_lost = 0
+
+        for i, hand in enumerate(self.hands):
+            player_value = calculate_hand_value(hand)
+            bet = self.bets[i]
+
+            # Determine outcome for this hand
+            if player_value > 21:
+                result_text = "Busted! 💥"
+                outcome = -bet
+                color = discord.Color.red()
+                overall_lost += 1
+            elif dealer_value > 21 or player_value > dealer_value:
+                # Check for blackjack on split hands too
+                if is_blackjack(hand):
+                    result_text = "Blackjack! 🎉 Won"
+                    outcome = int(bet * 1.5)  # Blackjack pays 3:2 even on splits
+                else:
+                    result_text = "Won! 🎉"
+                    outcome = bet
+                overall_won += 1
+                color = discord.Color.green()
+            elif player_value < dealer_value:
+                result_text = "Lost 😞"
+                outcome = -bet
+                overall_lost += 1
+                color = discord.Color.red()
+            else:  # Push
+                # Even blackjack pushes vs dealer blackjack
+                if is_blackjack(hand) and is_blackjack(self.dealer_hand):
+                    result_text = "Push - Both Blackjack! 🤝"
+                else:
+                    result_text = "Push 🤝"
+                outcome = 0
+                color = discord.Color.gold()
+
+            hands_info.append((hand, outcome, result_text))
+            total_outcome += outcome
+
+        # Determine overall color
+        if total_outcome > 0:
+            color = discord.Color.green()
+        elif total_outcome < 0:
+            color = discord.Color.red()
+        else:
+            color = discord.Color.gold()
+
+        # Update stats (one game played, won if any positive outcome)
+        won = overall_won > overall_lost
+        lost = overall_lost > overall_won
+        update_stats(self.stats, won, lost)
+
+        win_value = True if won else False if lost else None
+
+        embed = create_result_embed(
+            color,
+            hands_info,
+            self.dealer_hand,
+            total_outcome,
+            prev_balance,
+            self.stats,
+            display_bet=self.original_bet,
+        )
+
+        await interaction.response.edit_message(embed=embed, view=None)
+        await self.bot.database.user_db.increment_balance(self.user_id, total_outcome)
         await self.bot.database.game_db.set_user_game_stats(
-            self.user_id, GameEventType.BLACKJACK, win_value, abs(outcome)
+            self.user_id, GameEventType.BLACKJACK, win_value, abs(total_outcome)
         )
         self.bot.active_blackjack_players.discard(self.user_id)
         self.stop()
@@ -359,6 +629,7 @@ async def perform_blackjack(bot, interaction, user_id, amount, action, balance):
     player_value = calculate_hand_value(player_hand)
     dealer_value = calculate_hand_value(dealer_hand)
 
+    # Handle natural blackjack (21 with first 2 cards)
     if player_value == 21:
         if dealer_value == 21:
             won, lost = False, False
@@ -366,72 +637,56 @@ async def perform_blackjack(bot, interaction, user_id, amount, action, balance):
             outcome = 0
             color = discord.Color.gold()
         else:
-            result = "Blackjack! You win with a natural 21! 🎉 You win"
-            outcome = int(amount * 1.5)
+            result = "Blackjack! You win with a natural 21! 🎉 Won"
+            outcome = int(amount * 1.5)  # Blackjack pays 3:2
             won, lost = True, False
             color = discord.Color.green()
+
         update_stats(stats, won, lost)
         win_value = True if won else False if lost else None
-        embed = discord.Embed(
-            title="Blackjack",
-            description=f"Bet Amount ${format_number(amount)}",
-            color=color,
+
+        hands_info = [(player_hand, outcome, result)]
+        embed = create_result_embed(
+            color,
+            hands_info,
+            dealer_hand,
+            outcome,
+            prev_balance,
+            stats,
+            display_bet=amount,
         )
-        embed.add_field(
-            name="Your hand (Blackjack)", value=format_hand(player_hand), inline=False
-        )
-        embed.add_field(
-            name="Dealer's hand", value=format_hand(dealer_hand), inline=False
-        )
-        embed.add_field(
-            name="Prev Balance", value=f"${format_number(prev_balance)}", inline=True
-        )
-        embed.add_field(
-            name="Current Balance",
-            value=f"${format_number(prev_balance + outcome)}",
-            inline=True,
-        )
-        embed.add_field(
-            name="Result",
-            value=f"{result} ${format_number(abs(outcome))}",
-            inline=True,
-        )
-        embed.set_footer(
-            text=f"Blackjacks Won: {stats['blackjacks_won']} | "
-            f"Blackjacks Lost: {stats['blackjacks_lost']} | "
-            f"Blackjacks Tied: {stats['blackjacks_played'] - stats['blackjacks_won'] - stats['blackjacks_lost']} | "
-            f"Blackjacks Played: {stats['blackjacks_played']}"
-        )
+
         await interaction.edit_original_response(embed=embed, view=None)
-        # await bot.database.user_db.set_balance(user_id, balance + outcome)
         await bot.database.user_db.increment_balance(user_id, outcome)
         await bot.database.game_db.set_user_game_stats(
             user_id,
             GameEventType.BLACKJACK,
             win_value,
-            outcome,
+            abs(outcome),
         )
         bot.active_blackjack_players.discard(user_id)
         return
 
+    # Continue with normal gameplay
     embed = discord.Embed(
         title="Blackjack",
         description=f"Bet Amount: ${format_number(amount)}",
         color=discord.Color.blue(),
     )
     embed.add_field(
-        name=f"Your hand {player_value}",
-        value=f"{format_hand(player_hand)}",
+        name=f"Your hand ({player_value})",
+        value=f"{format_hand(player_hand)}\nBet: ${format_number(amount)}",
     )
     embed.add_field(
-        name=f"Dealer shows {calculate_hand_value([dealer_hand[0]])}",
+        name=f"Dealer shows ({calculate_hand_value([dealer_hand[0]])})",
         value=f"{EMOJI_MAP.get(dealer_hand[0])} ❓",
         inline=False,
     )
 
-    view = BlackjackView(bot, user_id, deck, player_hand, dealer_hand, amount, stats)
+    view = BlackjackView(bot, user_id, deck, [player_hand], dealer_hand, amount, stats)
+    view.update_button_states()  # Set initial button states
     message = await interaction.edit_original_response(embed=embed, view=view)
-    view.message = message  # Store message reference in the view
+    view.message = message
 
 
 async def setup(bot):

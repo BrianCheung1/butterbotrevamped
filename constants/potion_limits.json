@@ -1,0 +1,92 @@
+{
+  "Prayer potion": {
+    "limit": 2000,
+    "3": 139,
+    "4": 2434
+  },
+  "Super restore": {
+    "limit": 2000,
+    "3": 3026,
+    "4": 3024
+  },
+  "Super combat": {
+    "limit": 2000,
+    "3": 12697,
+    "4": 12695
+  },
+  "Super defence": {
+    "limit": 2000,
+    "3": 163,
+    "4": 2442
+  },
+  "Super energy": {
+    "limit": 2000,
+    "3": 3018,
+    "4": 3016
+  },
+  "Super strength": {
+    "limit": 2000,
+    "3": 157,
+    "4": 2440
+  },
+  "Strength potion": {
+    "limit": 2000,
+    "3": 115,
+    "4": 113
+  },
+  "Super attack": {
+    "limit": 2000,
+    "3": 145,
+    "4": 2436
+  },
+  "Energy potion": {
+    "limit": 2000,
+    "3": 3010,
+    "4": 3007
+  },
+  "Combat potion": {
+    "limit": 2000,
+    "3": 9741,
+    "4": 9739
+  },
+  "Ancient Brew": {
+    "limit": 2000,
+    "3": 26342,
+    "4": 26340
+  },
+  "Ranging potion": {
+    "limit": 2000,
+    "3": 169,
+    "4": 2444
+  },
+  "Guthix rest": {
+    "limit": 2000,
+    "3": 4419,
+    "4": 4417
+  },
+  "Saradomin brew": {
+    "limit": 2000,
+    "3": 6687,
+    "4": 6685
+  },
+  "Stamina potion": {
+    "limit": 2000,
+    "3": 12627,
+    "4": 12625
+  },
+  "Divine ranging potion": {
+    "limit": 2000,
+    "3": 23736,
+    "4": 23733
+  },
+  "Divine super combat potion": {
+    "limit": 2000,
+    "3": 23688,
+    "4": 23685
+  },
+  "Antidote++": {
+    "limit": 2000,
+    "3": 5954,
+    "4": 5952
+  }
+}

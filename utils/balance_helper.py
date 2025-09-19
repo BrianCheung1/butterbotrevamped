@@ -4,10 +4,12 @@ from utils.formatting import format_number
 
 
 def validate_amount(amount: Optional[int], balance: int) -> Optional[str]:
-    if amount > balance:
-        return f"You don't have enough balance to for this action. Current balance is ${format_number(balance)}."
+    if balance <= 0:
+        return "You have no balance available for this action."
     if amount is None or amount <= 0:
-        return "Invalid amount"
+        return "Invalid amount. Please enter a value greater than 0."
+    if amount > balance:
+        return f"You don't have enough balance for this action. Current balance is ${format_number(balance)}."
     return None
 
 

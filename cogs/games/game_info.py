@@ -4,26 +4,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.checks import is_owner_or_mod_check
+from utils.steam_helpers import game_title_autocomplete
 
 
 class GameInfo(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    async def game_title_autocomplete(
-        self,
-        interaction: discord.Interaction,
-        current: str,
-    ) -> list[app_commands.Choice[str]]:
-        """Autocomplete matching game titles."""
-        games = await self.bot.database.steam_games_db.get_all_games()
-        return [
-            app_commands.Choice(name=game["title"], value=game["title"])
-            for game in games
-            if current.lower() in game["title"].lower()
-        ][
-            :25
-        ]  # Discord's max autocomplete limit
 
     @app_commands.command(
         name="steam-game-info", description="Get details about a game"
