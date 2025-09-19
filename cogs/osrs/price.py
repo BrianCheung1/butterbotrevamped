@@ -170,6 +170,8 @@ class PriceChecker(commands.Cog):
     @app_commands.command(name="osrs-price", description="Get OSRS item market data")
     @app_commands.describe(item="Name of the item")
     @app_commands.autocomplete(item=item_autocomplete)
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def price(self, interaction: discord.Interaction, item: str):
         item_id = self.name_to_id.get(item.lower())
         if not item_id:
