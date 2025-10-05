@@ -88,5 +88,55 @@
     "limit": 2000,
     "3": 5954,
     "4": 5952
+  },
+  "Antifire potion": {
+    "limit": 2000,
+    "3": 2454,
+    "4": 2452
+  },
+  "Zamorak brew": {
+    "limit": 2000,
+    "3": 189,
+    "4": 2450
+  },
+  "Bastion potion": {
+    "limit": 2000,
+    "3": 22464,
+    "4": 22461
+  },
+  "Magic potion": {
+    "limit": 2000,
+    "3": 3042,
+    "4": 3040
+  },
+  "Serum 207": {
+    "limit": 2000,
+    "3": 3410,
+    "4": 3408
+  },
+  "Antipoison": {
+    "limit": 2000,
+    "3": 175,
+    "4": 2446
+  },
+  "Attack potion": {
+    "limit": 2000,
+    "3": 121,
+    "4": 2428
+  },
+  "Defense potion": {
+    "limit": 2000,
+    "3": 133,
+    "4": 2432
+  },
+  "Fishing potion": {
+    "limit": 2000,
+    "3": 133,
+    "4": 2438
+  },
+  "Prayer regeneration potion": {
+    "limit": 2000,
+    "3": 30128,
+    "4": 30125
   }
 }
