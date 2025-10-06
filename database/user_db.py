@@ -33,19 +33,17 @@ class UserDatabaseManager:
         if amount < 0:
             raise ValueError("Balance cannot be negative.")
 
-        # Ensure the user exists before updating their balance
         await self.db_manager._create_user_if_not_exists(user_id)
 
-        # Update the balance of the user
-        await self.connection.execute(
-            """
-            INSERT INTO users (user_id, balance)
-            VALUES (?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET balance = excluded.balance
-            """,
-            (user_id, amount),
-        )
-        await self.connection.commit()
+        async with self.db_manager.transaction():
+            await self.connection.execute(
+                """
+                INSERT INTO users (user_id, balance)
+                VALUES (?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET balance = excluded.balance
+                """,
+                (user_id, amount),
+            )
 
     @db_error_handler
     async def increment_balance(self, user_id: int, amount: int) -> int:
@@ -58,20 +56,20 @@ class UserDatabaseManager:
         """
         await self.db_manager._create_user_if_not_exists(user_id)
 
-        async with self.connection.execute(
-            """
-            UPDATE users
-            SET balance = balance + ?
-            WHERE user_id = ? AND balance + ? >= 0
-            RETURNING balance
-            """,
-            (amount, user_id, amount),
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row is None:
-                raise ValueError("Resulting balance would be negative.")
-            await self.connection.commit()
-            return row[0]
+        async with self.db_manager.transaction():
+            async with self.connection.execute(
+                """
+                UPDATE users
+                SET balance = balance + ?
+                WHERE user_id = ? AND balance + ? >= 0
+                RETURNING balance
+                """,
+                (amount, user_id, amount),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row is None:
+                    raise ValueError("Resulting balance would be negative.")
+                return row[0]
 
     @db_error_handler
     async def get_daily(self, user_id: int) -> tuple[int, str | None]:
@@ -102,18 +100,17 @@ class UserDatabaseManager:
         """
         await self.db_manager._create_user_if_not_exists(user_id)
 
-        if daily_streak is not None:
-            await self.connection.execute(
-                "UPDATE users SET daily_streak = ?, last_daily_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-                (daily_streak, user_id),
-            )
-        else:
-            await self.connection.execute(
-                "UPDATE users SET daily_streak = daily_streak + 1, last_daily_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-                (user_id,),
-            )
-
-        await self.connection.commit()
+        async with self.db_manager.transaction():
+            if daily_streak is not None:
+                await self.connection.execute(
+                    "UPDATE users SET daily_streak = ?, last_daily_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    (daily_streak, user_id),
+                )
+            else:
+                await self.connection.execute(
+                    "UPDATE users SET daily_streak = daily_streak + 1, last_daily_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    (user_id,),
+                )
 
     @db_error_handler
     async def set_daily_reminder_date(self, user_id: int, date_str: str) -> None:
@@ -124,15 +121,16 @@ class UserDatabaseManager:
         :param date_str: The date string in 'YYYY-MM-DD' format representing when reminder was sent.
         """
         await self.db_manager._create_user_if_not_exists(user_id)
-        await self.connection.execute(
-            """
-            UPDATE users
-            SET daily_reminder_sent_date = ?
-            WHERE user_id = ?
-            """,
-            (date_str, user_id),
-        )
-        await self.connection.commit()
+
+        async with self.db_manager.transaction():
+            await self.connection.execute(
+                """
+                UPDATE users
+                SET daily_reminder_sent_date = ?
+                WHERE user_id = ?
+                """,
+                (date_str, user_id),
+            )
 
     @db_error_handler
     async def get_all_daily_users(
@@ -152,7 +150,6 @@ class UserDatabaseManager:
         ) as cursor:
             rows = await cursor.fetchall()
 
-        # Return list of tuples for ease of use
         return [
             (
                 row["user_id"],

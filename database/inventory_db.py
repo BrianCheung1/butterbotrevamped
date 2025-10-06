@@ -1,4 +1,6 @@
-from typing import Optional
+from __future__ import annotations
+
+from typing import Optional, List, Dict
 
 import aiosqlite
 from logger import setup_logger
@@ -8,7 +10,6 @@ logger = setup_logger("InventoryDatabaseManager")
 
 
 class InventoryDatabaseManager:
-
     def __init__(
         self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"
     ) -> None:
@@ -16,11 +17,12 @@ class InventoryDatabaseManager:
         self.db_manager = db_manager
 
     @db_error_handler
-    async def get_user_inventory(self, user_id: int):
+    async def get_user_inventory(self, user_id: int) -> List[Dict[str, int]]:
         """
         Returns a list of all items the user has in their inventory.
 
         :param user_id: Discord user ID.
+        :return: List of dictionaries containing item_name and quantity.
         """
         await self.db_manager._create_user_if_not_exists(user_id)
         async with self.connection.execute(
@@ -32,36 +34,31 @@ class InventoryDatabaseManager:
         return [{"item_name": row[0], "quantity": row[1]} for row in rows]
 
     @db_error_handler
-    async def add_item(self, user_id: int, item_name: str):
+    async def add_item(self, user_id: int, item_name: str, quantity: int = 1) -> None:
         """
         Adds an item to the user's inventory. If it already exists, increments the quantity.
 
         :param user_id: Discord user ID.
         :param item_name: Name of the item to add.
+        :param quantity: Amount to add (default = 1).
         """
         await self.db_manager._create_user_if_not_exists(user_id)
 
-        async with self.connection.execute(
-            "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ?",
-            (user_id, item_name),
-        ) as cursor:
-            row = await cursor.fetchone()
-
-        if row:
+        async with self.db_manager.transaction():
             await self.connection.execute(
-                "UPDATE user_inventory SET quantity = quantity + 1 WHERE user_id = ? AND item_name = ?",
-                (user_id, item_name),
+                """
+                INSERT INTO user_inventory (user_id, item_name, quantity)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id, item_name)
+                DO UPDATE SET quantity = quantity + excluded.quantity
+                """,
+                (user_id, item_name, quantity),
             )
-        else:
-            await self.connection.execute(
-                "INSERT INTO user_inventory (user_id, item_name, quantity) VALUES (?, ?, ?)",
-                (user_id, item_name, 1),
-            )
-
-        await self.connection.commit()
 
     @db_error_handler
-    async def remove_item(self, user_id: int, item_name: str, quantity: int = 1):
+    async def remove_item(
+        self, user_id: int, item_name: str, quantity: int = 1
+    ) -> None:
         """
         Removes an item (or quantity) from the user's inventory. Deletes row if quantity reaches 0.
 
@@ -71,13 +68,18 @@ class InventoryDatabaseManager:
         """
         await self.db_manager._create_user_if_not_exists(user_id)
 
-        async with self.connection.execute(
-            "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ?",
-            (user_id, item_name),
-        ) as cursor:
-            row = await cursor.fetchone()
+        async with self.db_manager.transaction():
+            async with self.connection.execute(
+                "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ?",
+                (user_id, item_name),
+            ) as cursor:
+                row = await cursor.fetchone()
 
-        if row:
+            if not row:
+                raise ValueError(
+                    f"User does not have '{item_name}' in their inventory."
+                )
+
             current_quantity = row[0]
             if current_quantity > quantity:
                 await self.connection.execute(
@@ -89,7 +91,6 @@ class InventoryDatabaseManager:
                     "DELETE FROM user_inventory WHERE user_id = ? AND item_name = ?",
                     (user_id, item_name),
                 )
-            await self.connection.commit()
 
     @db_error_handler
     async def set_equipped_tool(
@@ -97,11 +98,11 @@ class InventoryDatabaseManager:
     ) -> Optional[str]:
         """
         Sets the equipped tool for a user. Removes 1 from inventory and equips the tool.
-        If the tool_name is None, it sets the equipped tool to NULL and does not return a tool to inventory.
+        If tool_name is None, sets the equipped tool to NULL and does not return a tool to inventory.
 
         :param user_id: Discord user ID.
         :param tool_type: Either 'pickaxe' or 'fishingrod'.
-        :param tool_name: The name of the tool to equip or None to set the tool to NULL.
+        :param tool_name: The name of the tool to equip or None to unequip.
         :return: The name of the previously equipped tool (if any), else None.
         """
         if tool_type not in ("pickaxe", "fishingrod"):
@@ -109,9 +110,8 @@ class InventoryDatabaseManager:
 
         await self.db_manager._create_user_if_not_exists(user_id)
 
-        # If tool_name is None, handle the case where we are setting the tool to NULL
-        if tool_name is None:
-            # Get current equipped tool
+        async with self.db_manager.transaction():
+            # Fetch current equipped tool
             async with self.connection.execute(
                 f"SELECT {tool_type} FROM user_equipped_tools WHERE user_id = ?",
                 (user_id,),
@@ -122,72 +122,70 @@ class InventoryDatabaseManager:
                 equipped_row[0] if equipped_row and equipped_row[0] else None
             )
 
-            # Set the tool to NULL in the database
+            # Handle unequip (tool_name is None)
+            if tool_name is None:
+                if equipped_row:
+                    await self.connection.execute(
+                        f"UPDATE user_equipped_tools SET {tool_type} = NULL WHERE user_id = ?",
+                        (user_id,),
+                    )
+                else:
+                    await self.connection.execute(
+                        "INSERT INTO user_equipped_tools (user_id, pickaxe, fishingrod) VALUES (?, NULL, NULL)",
+                        (user_id,),
+                    )
+                return previous_tool
+
+            # Prevent unnecessary work if tool is already equipped
+            if previous_tool == tool_name:
+                return previous_tool
+
+            # Ensure the user has the tool
+            async with self.connection.execute(
+                "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ?",
+                (user_id, tool_name),
+            ) as cursor:
+                row = await cursor.fetchone()
+
+            if not row or row[0] < 1:
+                raise ValueError(
+                    f"User does not have '{tool_name}' in their inventory."
+                )
+
+            # Remove the tool from inventory
+            await self.connection.execute(
+                "UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = ? AND item_name = ?",
+                (user_id, tool_name),
+            )
+
+            # Equip the new tool
             if equipped_row:
                 await self.connection.execute(
-                    f"UPDATE user_equipped_tools SET {tool_type} = NULL WHERE user_id = ?",
-                    (user_id,),
+                    f"UPDATE user_equipped_tools SET {tool_type} = ? WHERE user_id = ?",
+                    (tool_name, user_id),
                 )
             else:
                 await self.connection.execute(
-                    "INSERT INTO user_equipped_tools (user_id, pickaxe, fishingrod) VALUES (?, NULL, NULL)",
-                    (user_id,),
+                    f"INSERT INTO user_equipped_tools (user_id, {tool_type}) VALUES (?, ?)",
+                    (user_id, tool_name),
                 )
-            await self.connection.commit()
 
-            # Do not return the tool to inventory when setting to NULL
+            # Return the previously equipped tool to inventory (if any)
+            if previous_tool:
+                await self.connection.execute(
+                    """
+                    INSERT INTO user_inventory (user_id, item_name, quantity)
+                    VALUES (?, ?, 1)
+                    ON CONFLICT(user_id, item_name)
+                    DO UPDATE SET quantity = quantity + 1
+                    """,
+                    (user_id, previous_tool),
+                )
+
             return previous_tool
 
-        # Ensure the user has the tool in inventory
-        async with self.connection.execute(
-            "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ?",
-            (user_id, tool_name),
-        ) as cursor:
-            row = await cursor.fetchone()
-
-        if not row or row[0] < 1:
-            raise ValueError(f"User does not have '{tool_name}' in their inventory.")
-
-        # Remove the tool from inventory
-        await self.remove_item(user_id, tool_name, 1)
-
-        # Get current equipped tool
-        async with self.connection.execute(
-            f"SELECT {tool_type} FROM user_equipped_tools WHERE user_id = ?",
-            (user_id,),
-        ) as cursor:
-            equipped_row = await cursor.fetchone()
-
-        previous_tool = equipped_row[0] if equipped_row and equipped_row[0] else None
-
-        # Equip the new tool
-        if equipped_row:
-            await self.connection.execute(
-                f"UPDATE user_equipped_tools SET {tool_type} = ? WHERE user_id = ?",
-                (tool_name, user_id),
-            )
-        else:
-            if tool_type == "pickaxe":
-                await self.connection.execute(
-                    "INSERT INTO user_equipped_tools (user_id, pickaxe) VALUES (?, ?)",
-                    (user_id, tool_name),
-                )
-            else:
-                await self.connection.execute(
-                    "INSERT INTO user_equipped_tools (user_id, fishingrod) VALUES (?, ?)",
-                    (user_id, tool_name),
-                )
-
-        await self.connection.commit()
-
-        # Optionally return previous tool back to inventory:
-        if previous_tool:
-            await self.add_item(user_id, previous_tool)
-
-        return previous_tool
-
     @db_error_handler
-    async def get_equipped_tools(self, user_id: int) -> dict:
+    async def get_equipped_tools(self, user_id: int) -> Dict[str, Optional[str]]:
         """
         Retrieves the currently equipped pickaxe and fishing rod for a user.
 

@@ -7,8 +7,11 @@ logger = setup_logger("GuildSettingsDatabaseManager")
 
 
 class GuildSettingsDatabaseManager:
-    def __init__(self, connection: aiosqlite.Connection) -> None:
+    def __init__(
+        self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"
+    ) -> None:
         self.connection = connection
+        self.db_manager = db_manager
 
     def _validate_channel_type(self, channel_type: str) -> None:
         if channel_type not in VALID_CHANNEL_TYPES:
@@ -23,16 +26,15 @@ class GuildSettingsDatabaseManager:
         """
         self._validate_channel_type(channel_type)
 
-        await self.connection.execute("BEGIN IMMEDIATE")
-        await self.connection.execute(
-            f"""
-            INSERT INTO guild_settings (guild_id, {channel_type})
-            VALUES (?, ?)
-            ON CONFLICT(guild_id) DO UPDATE SET {channel_type} = excluded.{channel_type}
-            """,
-            (guild_id, channel_id),
-        )
-        await self.connection.commit()
+        async with self.db_manager.transaction():
+            await self.connection.execute(
+                f"""
+                INSERT INTO guild_settings (guild_id, {channel_type})
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET {channel_type} = excluded.{channel_type}
+                """,
+                (guild_id, channel_id),
+            )
 
     @db_error_handler
     async def get_channel(self, guild_id: int, channel_type: str) -> int | None:
@@ -59,12 +61,11 @@ class GuildSettingsDatabaseManager:
             (guild_id,),
         ) as cursor:
             row = await cursor.fetchone()
+            if not row:
+                return {}
 
-        if not row:
-            return {}
-
-        column_names = [description[0] for description in cursor.description]
-        return dict(zip(column_names, row))
+            column_names = [description[0] for description in cursor.description]
+            return dict(zip(column_names, row))
 
     @db_error_handler
     async def remove_channel(self, guild_id: int, channel_type: str) -> bool:
@@ -74,13 +75,13 @@ class GuildSettingsDatabaseManager:
         """
         self._validate_channel_type(channel_type)
 
-        cursor = await self.connection.execute(
-            f"""
-            UPDATE guild_settings
-            SET {channel_type} = NULL
-            WHERE guild_id = ? AND {channel_type} IS NOT NULL
-            """,
-            (guild_id,),
-        )
-        await self.connection.commit()
-        return cursor.rowcount > 0
+        async with self.db_manager.transaction():
+            cursor = await self.connection.execute(
+                f"""
+                UPDATE guild_settings
+                SET {channel_type} = NULL
+                WHERE guild_id = ? AND {channel_type} IS NOT NULL
+                """,
+                (guild_id,),
+            )
+            return cursor.rowcount > 0

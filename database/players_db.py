@@ -1,3 +1,6 @@
+from __future__ import annotations
+from typing import Optional, List, Dict
+
 import aiosqlite
 from logger import setup_logger
 from utils.database_errors import db_error_handler
@@ -6,37 +9,32 @@ logger = setup_logger("PlayersDatabaseManager")
 
 
 class PlayersDatabaseManager:
-
-    def __init__(self, connection: aiosqlite.Connection) -> None:
+    def __init__(
+        self,
+        connection: aiosqlite.Connection,
+        db_manager: "DatabaseManager",
+    ):
         self.connection = connection
+        self.db_manager = db_manager
 
     @db_error_handler
-    async def get_player(self, name: str, tag: str) -> dict | None:
+    async def get_player(self, name: str, tag: str) -> Optional[Dict]:
         """Get a specific player from the database."""
         name, tag = name.lower(), tag.lower()
 
-        try:
-            async with self.connection.execute(
-                "SELECT name, tag, rank, elo, last_updated FROM players WHERE name = ? AND tag = ?",
-                (name, tag),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    return {
-                        "name": row[0],
-                        "tag": row[1],
-                        "rank": row[2],
-                        "elo": row[3],
-                        "last_updated": row[4],
-                    }
+        async with self.connection.execute(
+            "SELECT name, tag, rank, elo, last_updated FROM players WHERE name = ? AND tag = ?",
+            (name, tag),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
                 return None
-        except Exception as e:
-            logger.error(f"Error fetching player {name}#{tag} from database: {e}")
-            return None
+            columns = [col[0] for col in cursor.description]
+            return dict(zip(columns, row))
 
     @db_error_handler
     async def save_player(
-        self, name: str, tag: str, rank: str = None, elo: int = None
+        self, name: str, tag: str, rank: Optional[str] = None, elo: Optional[int] = None
     ) -> None:
         """Insert or update player information in the database."""
         if not name or not tag:
@@ -44,7 +42,7 @@ class PlayersDatabaseManager:
 
         name, tag = name.lower(), tag.lower()
 
-        try:
+        async with self.db_manager.transaction():
             await self.connection.execute(
                 """
                 INSERT INTO players (name, tag, rank, elo, last_updated)
@@ -56,45 +54,24 @@ class PlayersDatabaseManager:
                 """,
                 (name, tag, rank, elo),
             )
-            await self.connection.commit()
-        except Exception as e:
-            logger.error(f"Error saving player {name}#{tag}: {e}")
-            raise
 
     @db_error_handler
-    async def get_all_player_mmr(self) -> list[dict]:
+    async def get_all_player_mmr(self) -> List[Dict]:
         """Get all stored player MMR data."""
-        try:
-            async with self.connection.execute(
-                "SELECT name, tag, rank, elo, last_updated FROM players WHERE rank IS NOT NULL AND elo IS NOT NULL"
-            ) as cursor:
-                rows = await cursor.fetchall()
-                return [
-                    {
-                        "name": row[0],
-                        "tag": row[1],
-                        "rank": row[2],
-                        "elo": row[3],
-                        "last_updated": row[4],
-                    }
-                    for row in rows
-                ]
-        except Exception as e:
-            logger.error(f"Error loading player MMR from database: {e}")
-            return []
+        async with self.connection.execute(
+            "SELECT name, tag, rank, elo, last_updated FROM players WHERE rank IS NOT NULL AND elo IS NOT NULL"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
 
     @db_error_handler
     async def delete_player(self, name: str, tag: str) -> bool:
         """Delete a specific player from the database."""
         name, tag = name.lower(), tag.lower()
 
-        try:
+        async with self.db_manager.transaction():
             cursor = await self.connection.execute(
-                "DELETE FROM players WHERE name = ? AND tag = ?",
-                (name, tag),
+                "DELETE FROM players WHERE name = ? AND tag = ?", (name, tag)
             )
-            await self.connection.commit()
             return cursor.rowcount > 0
-        except Exception as e:
-            logger.error(f"Error deleting player {name}#{tag}: {e}")
-            return False

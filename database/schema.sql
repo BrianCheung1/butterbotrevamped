@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     steam_games_channel_id INTEGER,
     leaderboard_announcements_channel_id INTEGER,
     mod_log_channel_id INTEGER
+    osrs_channel_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS interactions (

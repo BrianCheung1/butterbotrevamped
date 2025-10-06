@@ -1,4 +1,5 @@
 import aiosqlite
+from contextlib import asynccontextmanager
 from logger import setup_logger
 
 from .ai_db import AIDatabaseManager
@@ -37,27 +38,45 @@ class DatabaseManager:
         self.buffs_db = BuffsDatabaseManager(connection, self)
 
         # Valorant Database
-        self.players_db = PlayersDatabaseManager(connection)
+        self.players_db = PlayersDatabaseManager(connection, self)
 
         # Movies Database
-        self.movies_db = MoviesDatabaseManager(connection)
+        self.movies_db = MoviesDatabaseManager(connection, self)
 
         # Guild Database
-        self.guild_db = GuildSettingsDatabaseManager(connection)
+        self.guild_db = GuildSettingsDatabaseManager(connection, self)
 
         # AI Database
-        self.ai_db = AIDatabaseManager(connection)
+        self.ai_db = AIDatabaseManager(connection, self)
 
         # Steam Games Database
-        self.steam_games_db = SteamGamesDatabaseManager(connection)
+        self.steam_games_db = SteamGamesDatabaseManager(connection, self)
 
         # Patch Notes Database
-        self.patch_notes_db = PatchNotesDatabaseManager(connection)
+        self.patch_notes_db = PatchNotesDatabaseManager(connection, self)
 
         # Reminders Database
-        self.reminders_db = RemindersDatabaseManager(connection)
+        self.reminders_db = RemindersDatabaseManager(connection, self)
 
-        self.message_db = MessageLoggerDatabaseManager(connection)
+        self.message_db = MessageLoggerDatabaseManager(connection, self)
+
+    @asynccontextmanager
+    async def transaction(self):
+        """
+        Context manager for safe database transactions.
+
+        Usage:
+            async with db_manager.transaction():
+                await connection.execute(...)
+                await connection.execute(...)
+        """
+        await self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+            await self.connection.commit()
+        except Exception:
+            await self.connection.rollback()
+            raise
 
     async def _create_user_if_not_exists(self, user_id: int) -> None:
         async with self.connection.execute(
@@ -80,10 +99,9 @@ class DatabaseManager:
             ("INSERT INTO user_equipped_tools (user_id) VALUES (?)", (user_id,)),
         ]
         try:
-            async with self.connection.execute("BEGIN"):
+            async with self.transaction():
                 for query, params in queries:
                     await self.connection.execute(query, params)
-                await self.connection.commit()
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
 
@@ -92,7 +110,6 @@ class DatabaseManager:
         Get leaderboard data for a specific category (e.g., balance, mining level, etc.).
 
         :param leaderboard_type: Type of leaderboard ('balance', 'mining_level', 'fishing_level', 'bank_balance')
-        :param limit: How many entries to return (default is 10)
         :return: List of leaderboard entries
         """
         LEADERBOARD_QUERIES = {

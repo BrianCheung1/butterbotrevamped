@@ -8,8 +8,9 @@ logger = setup_logger("SteamGamesDatabaseManager")
 
 
 class SteamGamesDatabaseManager:
-    def __init__(self, connection: aiosqlite.Connection):
+    def __init__(self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"):
         self.connection = connection
+        self.db_manager = db_manager
 
     @db_error_handler
     async def upsert_game(
@@ -31,48 +32,57 @@ class SteamGamesDatabaseManager:
         added_by_name: str,
     ):
         """Insert or update a game."""
-        await self.connection.execute(
-            """
-            INSERT INTO steam_games (
-                title, add_type, download_link, steam_link, description, image,
-                build, notes, price, reviews, app_id, genres, categories, added_by_id, added_by_name
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(title) DO UPDATE SET
-                add_type=excluded.add_type,
-                download_link=excluded.download_link,
-                steam_link=excluded.steam_link,
-                description=excluded.description,
-                image=excluded.image,
-                build=excluded.build,
-                notes=excluded.notes,
-                price=excluded.price,
-                reviews=excluded.reviews,
-                app_id=excluded.app_id,
-                genres=excluded.genres,
-                categories=excluded.categories,
-                added_by_id=excluded.added_by_id,
-                added_by_name=excluded.added_by_name,
-                added_at=CURRENT_TIMESTAMP
-            """,
-            (
-                title,
-                add_type,
-                download_link,
-                steam_link,
-                description,
-                image,
-                build,
-                notes,
-                price,
-                reviews,
-                app_id,
-                genres,
-                categories,
-                added_by_id,
-                added_by_name,
-            ),
-        )
-        await self.connection.commit()
+        async with self.db_manager.transaction():
+            await self.connection.execute(
+                """
+                INSERT INTO steam_games (
+                    title, add_type, download_link, steam_link, description, image,
+                    build, notes, price, reviews, app_id, genres, categories, added_by_id, added_by_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(title) DO UPDATE SET
+                    add_type=excluded.add_type,
+                    download_link=excluded.download_link,
+                    steam_link=excluded.steam_link,
+                    description=excluded.description,
+                    image=excluded.image,
+                    build=excluded.build,
+                    notes=excluded.notes,
+                    price=excluded.price,
+                    reviews=excluded.reviews,
+                    app_id=excluded.app_id,
+                    genres=excluded.genres,
+                    categories=excluded.categories,
+                    added_by_id=excluded.added_by_id,
+                    added_by_name=excluded.added_by_name,
+                    added_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    title,
+                    add_type,
+                    download_link,
+                    steam_link,
+                    description,
+                    image,
+                    build,
+                    notes,
+                    price,
+                    reviews,
+                    app_id,
+                    genres,
+                    categories,
+                    added_by_id,
+                    added_by_name,
+                ),
+            )
+
+    @db_error_handler
+    async def delete_game_by_title(self, title: str) -> bool:
+        """Delete a game from the table."""
+        async with self.db_manager.transaction():
+            cursor = await self.connection.execute(
+                "DELETE FROM steam_games WHERE title = ?", (title,)
+            )
+            return cursor.rowcount > 0
 
     @db_error_handler
     async def get_game_by_title(self, title: str) -> Optional[dict]:
@@ -87,15 +97,6 @@ class SteamGamesDatabaseManager:
 
         columns = [column[0] for column in cursor.description]
         return dict(zip(columns, row))
-
-    @db_error_handler
-    async def delete_game_by_title(self, title: str) -> bool:
-        """Delete a game from the table."""
-        await self.connection.execute(
-            "DELETE FROM steam_games WHERE title = ?", (title,)
-        )
-        await self.connection.commit()
-        return True
 
     @db_error_handler
     async def get_all_games(self) -> list[dict]:

@@ -1,18 +1,24 @@
 import json
+import math
 import os
 import time
+from datetime import datetime
 
 import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+# API URLs
 PRICE_URL = "https://prices.runescape.wiki/api/v1/osrs/latest"
 TS_URL = "https://prices.runescape.wiki/api/v1/osrs/timeseries"
-MIN_PROFIT = 125_000
+
+# Default filters
+DEFAULT_MIN_PROFIT = 100_000
+DEFAULT_MIN_VOLUME = 50_000
 MIN_GE_LIMIT = 2000
 
-# Resolve path to JSON
+# Load potion data
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 json_path = os.path.join(project_root, "constants", "potion_limits.json")
 with open(json_path, "r") as f:
@@ -20,81 +26,171 @@ with open(json_path, "r") as f:
 
 
 class DecantPaginator(discord.ui.View):
-    def __init__(self, pages, used_cache: bool, cache_time: int):
-        super().__init__(timeout=180)
+    def __init__(self, pages, used_cache: bool, cache_time: int, cog_instance):
+        super().__init__(timeout=3600)
         self.pages = pages
         self.current = 0
         self.used_cache = used_cache
         self.cache_time = cache_time
+        self.cog = cog_instance
 
     def create_embed(self):
         data = self.pages[self.current]
+
+        # Color coding based on profit level
+        if data["avg_profit"] >= 400_000:
+            color = 0x00FF00  # Bright green for very high profit
+        elif data["avg_profit"] >= 200_000:
+            color = 0x32CD32  # Lime green for high profit
+        elif data["avg_profit"] >= 100_000:
+            color = 0x90EE90  # Light green for decent profit
+        else:
+            color = 0xFFD700  # Gold for lower profit
+
         embed = discord.Embed(
-            title=f"💊 {data['potion']} - **Avg Profit:** `{int(data['avg_profit']):,}` gp "
-            f"({self.current + 1}/{len(self.pages)})",
-            color=discord.Color.green(),
-        )
-
-        embed.add_field(
-            name="💰 Prices",
-            value=(
-                f"**3-dose:**\n"
-                f"Low `{data['low3']:,}` <t:{data['low3_time']}:R>\n"
-                f"High `{data['high3']:,}` <t:{data['high3_time']}:R>\n"
-                f"**4-dose:**\n"
-                f"Low `{data['low4']:,}` <t:{data['low4_time']}:R>\n"
-                f"High `{data['high4']:,}` <t:{data['high4_time']}:R>"
+            title=f"💰 **{data['potion']}** Decant Analysis",
+            description=(
+                f"📈 **Average Profit:** `{int(data['avg_profit']):,}` gp | **ROI:** `{data['roi_pct']:.1f}%`\n"
+                f"💸 **Capital Required:** `{data['capital_required']:,}` gp | **Page:** `{self.current + 1}/{len(self.pages)}`"
             ),
-            inline=False,
+            color=color,
         )
 
+        # Current GE Prices
         embed.add_field(
-            name="📊 Profits",
-            value="\n".join([f"{k}: `{int(v):,}`" for k, v in data["profits"].items()])
-            + f"\n**Avg Profit:** `{int(data['avg_profit']):,}` gp\n"
-            f"**ROI:** `{data['roi_pct']:.2f}%`\n"
-            f"**Capital Needed:** `{data['capital_required']:,} gp`",
-            inline=False,
-        )
-
-        embed.add_field(
-            name="📈 Market Data (24h)",
+            name="🏷️ **Current GE Prices**",
             value=(
-                f"**3-dose:**\n"
-                f"Avg Low: `{data.get('avg_low_ts_3', 0):,}` (Vol: `{data.get('avg_low_vol_3', 0):,}`)\n"
-                f"Avg High: `{data.get('avg_high_ts_3', 0):,}` (Vol: `{data.get('avg_high_vol_3', 0):,}`)\n"
-                f"**4-dose:**\n"
-                f"Avg Low: `{data.get('avg_low_ts_4', 0):,}` (Vol: `{data.get('avg_low_vol_4', 0):,}`)\n"
-                f"Avg High: `{data.get('avg_high_ts_4', 0):,}` (Vol: `{data.get('avg_high_vol_4', 0):,}`)\n"
-                f"Spread (4-dose): `{data.get('spread_pct', 0):.2f}%`\n"
-                f"GE Limit: `{data['ge_limit']:,}`"
+                f"**3-dose:** `{data['low3']:,}` - `{data['high3']:,}` gp\n"
+                f"<t:{data['low3_time']}:R> - <t:{data['high3_time']}:R>\n\n"
+                f"**4-dose:** `{data['low4']:,}` - `{data['high4']:,}` gp\n"
+                f"<t:{data['low4_time']}:R> - <t:{data['high4_time']}:R>"
             ),
-            inline=False,
+            inline=True,
         )
 
-        embed.set_image(
+        # Key Metrics
+        embed.add_field(
+            name="📊 **Key Metrics**",
+            value=(
+                f"**Best Profit:** `{int(max(data['profits'].values())):,}` gp\n"
+                f"**Worst Profit:** `{int(min(data['profits'].values())):,}` gp\n"
+                f"**Daily Range 3-dose:** `{data['daily_low_3']:,}` - `{data['daily_high_3']:,}` gp\n"
+                f"**Daily Range 4-dose:** `{data['daily_low_4']:,}` - `{data['daily_high_4']:,}` gp"
+            ),
+            inline=True,
+        )
+
+        embed.add_field(name="\u200b", value="\u200b", inline=False)
+
+        # Profit Scenarios
+        profit_scenarios = [
+            ("🟢 Buy Low → Sell High", data["profits"]["Buy Low→Sell High"]),
+            ("🟡 Buy Low → Sell Low", data["profits"]["Buy Low→Sell Low"]),
+            ("🟠 Buy High → Sell High", data["profits"]["Buy High→Sell High"]),
+            ("🔴 Buy High → Sell Low", data["profits"]["Buy High→Sell Low"]),
+        ]
+
+        profit_text = "\n".join(
+            [
+                f"{scenario}: `{int(profit):,}` gp"
+                for scenario, profit in profit_scenarios
+            ]
+        )
+
+        embed.add_field(
+            name="📋 **Profit Scenarios** (per 2,000 doses)",
+            value=profit_text,
+            inline=True,
+        )
+
+        # Daily Trading Volume
+        embed.add_field(
+            name="📈 **Daily Trading Volume**",
+            value=(
+                f"**3-dose Daily Volume:**\n"
+                f"Buy Orders: `{data.get('daily_buy_vol_3', 0):,}`\n"
+                f"Sell Orders: `{data.get('daily_sell_vol_3', 0):,}`\n\n"
+                f"**4-dose Daily Volume:**\n"
+                f"Buy Orders: `{data.get('daily_buy_vol_4', 0):,}`\n"
+                f"Sell Orders: `{data.get('daily_sell_vol_4', 0):,}`"
+            ),
+            inline=True,
+        )
+
+        embed.add_field(
+            name="📦 **Expected Fill**",
+            value=(
+                f"**3-dose:** `{data.get('expected_fill_3', 0):,}` / 2000 expected\n"
+            ),
+            inline=True,
+        )
+
+        # Item thumbnail
+        embed.set_thumbnail(
             url=f"https://prices.runescape.wiki/osrs/item/{data['item_id']}.png"
         )
 
-        embed.add_field(
-            name="⏱️ Data Age",
-            value=f"<t:{int(self.cache_time)}:R>",
-            inline=False,
+        # Footer
+        cache_status = "🟢 Live Data" if not self.used_cache else "🟡 Cached Data"
+        last_updated = datetime.fromtimestamp(self.cache_time).strftime(
+            "%Y-%m-%d %H:%M:%S UTC"
+        )
+        embed.set_footer(
+            text=f"{cache_status} | Last Updated: {last_updated} | 5min intervals",
+            icon_url="https://oldschool.runescape.wiki/images/thumb/6/6d/Coins_10000.png/21px-Coins_10000.png",
         )
 
         return embed
 
-    @discord.ui.button(label="⬅️", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.primary)
     async def previous(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         self.current = (self.current - 1) % len(self.pages)
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    @discord.ui.button(label="➡️", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="➡️ Next", style=discord.ButtonStyle.primary)
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current = (self.current + 1) % len(self.pages)
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="🔄 Run Again", style=discord.ButtonStyle.primary)
+    async def run_again(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await interaction.response.defer()
+        try:
+            latest, ts_data, used_cache, cache_time = await self.cog.fetch_prices()
+            alerts = self.cog.analyze_potions(latest, ts_data)
+
+            if not alerts:
+                embed = discord.Embed(
+                    title="💊 Potion Decant Check",
+                    description=(
+                        "No profitable potion decants found at this time.\n"
+                        f"Minimum profit threshold: `{DEFAULT_MIN_PROFIT:,}` gp"
+                    ),
+                    color=discord.Color.orange(),
+                )
+                embed.set_footer(text="Try again later or adjust your filters!")
+                await interaction.followup.send(embed=embed, view=None)
+                return
+
+            self.pages = alerts
+            self.used_cache = used_cache
+            self.cache_time = cache_time
+            self.current = 0
+
+            embed = self.create_embed()
+            await interaction.followup.send(embed=embed, view=self)
+
+        except Exception as e:
+            error_embed = discord.Embed(
+                title="❌ Error",
+                description=f"Failed to refresh potion prices:\n```{str(e)[:100]}```",
+                color=discord.Color.red(),
+            )
+            await interaction.followup.send(embed=error_embed, view=None)
 
 
 class DecantChecker(commands.Cog):
@@ -102,14 +198,71 @@ class DecantChecker(commands.Cog):
         self.bot = bot
         self._price_cache = {"timestamp": 0, "data": None}
         self._ts_cache = {"timestamp": 0, "data": None}
-        self._cache_duration = 60
+        self._cache_duration = 60  # 1 minute cache
+
+    def aggregate_5m_data(self, data_points):
+        """Aggregate 5-minute timeseries data into daily stats"""
+        if not data_points:
+            return {
+                "daily_high": 0,
+                "daily_low": 0,
+                "total_buy_volume": 0,
+                "total_sell_volume": 0,
+            }
+
+        # Filter out None values and get valid prices
+        valid_highs = [
+            point.get("avgHighPrice")
+            for point in data_points
+            if point.get("avgHighPrice") is not None and point.get("avgHighPrice") > 0
+        ]
+        valid_lows = [
+            point.get("avgLowPrice")
+            for point in data_points
+            if point.get("avgLowPrice") is not None and point.get("avgLowPrice") > 0
+        ]
+
+        # Sum all volumes (treating None as 0)
+        total_buy_volume = sum(
+            point.get("lowPriceVolume") or 0 for point in data_points
+        )
+        total_sell_volume = sum(
+            point.get("highPriceVolume") or 0 for point in data_points
+        )
+
+        return {
+            "daily_high": max(valid_highs) if valid_highs else 0,
+            "daily_low": min(valid_lows) if valid_lows else 0,
+            "total_buy_volume": total_buy_volume,
+            "total_sell_volume": total_sell_volume,
+        }
+
+    def expected_fill(
+        self,
+        desired_qty: int,
+        ts_volume: int,
+        ge_limit: int,
+        adjustment_factor: float = 0.9,
+    ) -> int:
+        """
+        Estimate how many potions of `desired_qty` are likely to fill based on recent volume.
+        - ts_volume: total buy volume from recent 5m intervals
+        - ge_limit: GE max buy limit for the potion
+        - adjustment_factor: tweak to account for market activity
+        """
+        ts_volume /= 288
+        if ts_volume <= 0:
+            return min(desired_qty, ge_limit)
+
+        fill_estimate = min(desired_qty, math.ceil(ts_volume / adjustment_factor))
+        return min(fill_estimate, ge_limit)
 
     async def fetch_prices(self):
-        """Fetch latest + 24h timeseries prices with caching"""
+        """Fetch latest + 5m timeseries prices with caching"""
         now = time.time()
         used_cache = False
 
-        # Latest prices
+        # Fetch latest prices (unchanged)
         if (
             not self._price_cache["data"]
             or now - self._price_cache["timestamp"] > self._cache_duration
@@ -124,31 +277,39 @@ class DecantChecker(commands.Cog):
         else:
             used_cache = True
 
-        # 24h Timeseries
+        # Fetch 5m timeseries data for the last 24 hours
         if (
             not self._ts_cache["data"]
             or now - self._ts_cache["timestamp"] > self._cache_duration
         ):
             ts_data = {}
             async with aiohttp.ClientSession() as session:
-                for pid in {str(v["3"]) for v in POTIONS.values()} | {
+                potion_ids = {str(v["3"]) for v in POTIONS.values()} | {
                     str(v["4"]) for v in POTIONS.values()
-                }:
-                    url = f"{TS_URL}?timestep=24h&id={pid}"
+                }
+
+                for potion_id in potion_ids:
+                    # Use 5m timestep instead of 24h
+                    url = f"{TS_URL}?timestep=5m&id={potion_id}"
                     async with session.get(
                         url, headers={"User-Agent": "PotionDecantChecker/2.0"}
                     ) as resp:
                         resp.raise_for_status()
-                        d = await resp.json()
-                        data_points = d.get("data", [])
-                        if data_points:
-                            last = data_points[-1]
-                            ts_data[pid] = {
-                                "avgLowPrice": last.get("avgLowPrice") or 0,
-                                "avgHighPrice": last.get("avgHighPrice") or 0,
-                                "avgLowVolume": last.get("lowPriceVolume") or 0,
-                                "avgHighVolume": last.get("highPriceVolume") or 0,
-                            }
+                        data = await resp.json()
+                        data_points = data.get("data", [])
+
+                        # Get data from the last 24 hours (288 data points at 5min intervals)
+                        # Take the last 288 points or all available if less
+                        recent_points = (
+                            data_points[-288:]
+                            if len(data_points) > 288
+                            else data_points
+                        )
+
+                        # Aggregate the 5-minute data
+                        aggregated = self.aggregate_5m_data(recent_points)
+                        ts_data[potion_id] = aggregated
+
             self._ts_cache = {"timestamp": now, "data": ts_data}
         else:
             used_cache = True
@@ -157,118 +318,229 @@ class DecantChecker(commands.Cog):
         return self._price_cache["data"], self._ts_cache["data"], used_cache, cache_time
 
     @staticmethod
-    def calc_profit(buy3, sell4):
-        """Calculate profit assuming 2000-dose purchase and 2% tax"""
-        cost = buy3 * 2000
-        revenue = sell4 * 1500 * 0.98
+    def calc_profit(buy3_price, sell4_price):
+        """Calculate profit for 2000-dose purchase with 2% GE tax"""
+        cost = buy3_price * 2000  # Buy 2000x 3-dose potions
+        revenue = sell4_price * 1500 * 0.98  # Sell 1500x 4-dose potions (2% tax)
         return revenue - cost
 
-    def analyze_potions(self, latest, ts_data):
+    def analyze_potions(
+        self,
+        latest,
+        ts_data,
+        min_profit=DEFAULT_MIN_PROFIT,
+        min_volume=DEFAULT_MIN_VOLUME,
+    ):
+        """Analyze potions for profitable decanting opportunities"""
         alerts = []
+        current_time = time.time()
 
-        for pname, pdata in POTIONS.items():
-            if pdata["limit"] < MIN_GE_LIMIT:
+        def get_safe_volume(ts_volume, last_update_time, ge_limit):
+            """Get volume with fallback for recent activity"""
+            if ts_volume > 0:
+                return ts_volume
+
+            # If price updated recently (within 15 minutes), estimate volume
+            if current_time - last_update_time < 900:
+                return max(int(ge_limit * 0.5), min_volume)
+
+            return 0
+
+        for potion_name, potion_data in POTIONS.items():
+            # Skip potions with low GE limits
+            if potion_data["limit"] < MIN_GE_LIMIT:
                 continue
 
-            id3, id4 = str(pdata["3"]), str(pdata["4"])
-            if id3 not in latest or id4 not in latest:
+            dose3_id, dose4_id = str(potion_data["3"]), str(potion_data["4"])
+
+            # Check if both items exist in price data
+            if dose3_id not in latest or dose4_id not in latest:
                 continue
 
-            p3, p4 = latest[id3], latest[id4]
-            low3, high3 = sorted([p3["low"], p3["high"]])
-            low4, high4 = sorted([p4["low"], p4["high"]])
+            price3, price4 = latest[dose3_id], latest[dose4_id]
 
+            # Get sorted prices (low/high) from latest API data
+            low3, high3 = sorted([price3["low"], price3["high"]])
+            low4, high4 = sorted([price4["low"], price4["high"]])
+
+            # Skip if any price is missing
             if not all([low3, high3, low4, high4]):
                 continue
 
-            # Timeseries volumes
-            avg_low_vol_3 = ts_data.get(id3, {}).get("avgLowVolume", 0)
-            avg_high_vol_3 = ts_data.get(id3, {}).get("avgHighVolume", 0)
-            avg_low_vol_4 = ts_data.get(id4, {}).get("avgLowVolume", 0)
-            avg_high_vol_4 = ts_data.get(id4, {}).get("avgHighVolume", 0)
+            # Get price update timestamps
+            price_times = {
+                "low3_time": price3.get("lowTime", 0),
+                "high3_time": price3.get("highTime", 0),
+                "low4_time": price4.get("lowTime", 0),
+                "high4_time": price4.get("highTime", 0),
+            }
 
-            # Skip potions with very low volume
-            if min(avg_low_vol_3, avg_high_vol_3, avg_low_vol_4, avg_high_vol_4) < 5000:
+            # Get aggregated daily data for display purposes only
+            if dose3_id in ts_data and dose4_id in ts_data:
+                ts3_data = ts_data[dose3_id]
+                ts4_data = ts_data[dose4_id]
+
+                daily_low_3 = ts3_data["daily_low"]
+                daily_high_3 = ts3_data["daily_high"]
+                daily_low_4 = ts4_data["daily_low"]
+                daily_high_4 = ts4_data["daily_high"]
+
+                daily_buy_vol_3 = ts3_data["total_buy_volume"]
+                daily_sell_vol_3 = ts3_data["total_sell_volume"]
+                daily_buy_vol_4 = ts4_data["total_buy_volume"]
+                daily_sell_vol_4 = ts4_data["total_sell_volume"]
+            else:
+                # Fallback to latest data if timeseries unavailable
+                daily_low_3 = low3
+                daily_high_3 = high3
+                daily_low_4 = low4
+                daily_high_4 = high4
+                daily_buy_vol_3 = daily_sell_vol_3 = daily_buy_vol_4 = (
+                    daily_sell_vol_4
+                ) = 0
+
+            # Calculate volumes with fallbacks (for filtering only)
+            volumes = {
+                "avg_low_vol_3": get_safe_volume(
+                    daily_buy_vol_3,
+                    price_times["low3_time"],
+                    potion_data["limit"],
+                ),
+                "avg_high_vol_3": get_safe_volume(
+                    daily_sell_vol_3,
+                    price_times["high3_time"],
+                    potion_data["limit"],
+                ),
+                "avg_low_vol_4": get_safe_volume(
+                    daily_buy_vol_4,
+                    price_times["low4_time"],
+                    potion_data["limit"],
+                ),
+                "avg_high_vol_4": get_safe_volume(
+                    daily_sell_vol_4,
+                    price_times["high4_time"],
+                    potion_data["limit"],
+                ),
+            }
+
+            # Check minimum volume requirement first
+            min_required_volumes = [
+                volumes["avg_low_vol_3"],
+                volumes["avg_high_vol_3"],
+                volumes["avg_low_vol_4"],
+                volumes["avg_high_vol_4"],
+            ]
+
+            # Skip if any volume is below minimum threshold
+            if any(vol < min_volume for vol in min_required_volumes):
                 continue
 
-            # Fetch latest timestamps
-            low3_time = p3.get("lowTime", 0)
-            high3_time = p3.get("highTime", 0)
-            low4_time = p4.get("lowTime", 0)
-            high4_time = p4.get("highTime", 0)
+            desired_order = 2000  # Example: 2000 potions per order
 
-            profits = [
-                self.calc_profit(low3, low4),
-                self.calc_profit(low3, high4),
-                self.calc_profit(high3, low4),
-                self.calc_profit(high3, high4),
-            ]
-            avg_profit = sum(profits) / len(profits)
-            cost = low3 * 2000
-            roi = (avg_profit / cost) * 100 if cost > 0 else 0
-            spread = (high4 - low4) / low4 * 100 if low4 else 0
+            expected_fill_3 = self.expected_fill(
+                desired_order,
+                volumes["avg_low_vol_3"],  # use 5m aggregated buy volume
+                potion_data["limit"],
+            )
 
-            if avg_profit >= MIN_PROFIT:
+            # Calculate all profit scenarios using ORIGINAL latest API prices
+            profit_scenarios = {
+                "Buy Low→Sell Low": self.calc_profit(low3, low4),
+                "Buy Low→Sell High": self.calc_profit(low3, high4),
+                "Buy High→Sell Low": self.calc_profit(high3, low4),
+                "Buy High→Sell High": self.calc_profit(high3, high4),
+            }
+
+            avg_profit = sum(profit_scenarios.values()) / len(profit_scenarios)
+            capital_cost = low3 * 2000
+            roi_percent = (avg_profit / capital_cost * 100) if capital_cost > 0 else 0
+            spread_percent = ((high4 - low4) / low4 * 100) if low4 else 0
+
+            # Only include profitable opportunities
+            if avg_profit >= min_profit:
                 alerts.append(
                     {
-                        "potion": pname,
+                        "potion": potion_name,
                         "low3": low3,
                         "high3": high3,
                         "low4": low4,
                         "high4": high4,
-                        "low3_time": low3_time,
-                        "high3_time": high3_time,
-                        "low4_time": low4_time,
-                        "high4_time": high4_time,
+                        **price_times,
+                        "daily_low_3": daily_low_3,
+                        "daily_high_3": daily_high_3,
+                        "daily_low_4": daily_low_4,
+                        "daily_high_4": daily_high_4,
                         "avg_profit": avg_profit,
-                        "profits": {
-                            "Buy Low→Sell Low": profits[0],
-                            "Buy Low→Sell High": profits[1],
-                            "Buy High→Sell Low": profits[2],
-                            "Buy High→Sell High": profits[3],
-                        },
-                        "avg_low_ts_3": ts_data.get(id3, {}).get("avgLowPrice", 0),
-                        "avg_high_ts_3": ts_data.get(id3, {}).get("avgHighPrice", 0),
-                        "avg_low_ts_4": ts_data.get(id4, {}).get("avgLowPrice", 0),
-                        "avg_high_ts_4": ts_data.get(id4, {}).get("avgHighPrice", 0),
-                        "avg_low_vol_3": avg_low_vol_3,
-                        "avg_high_vol_3": avg_high_vol_3,
-                        "avg_low_vol_4": avg_low_vol_4,
-                        "avg_high_vol_4": avg_high_vol_4,
-                        "spread_pct": spread,
-                        "roi_pct": roi,
-                        "ge_limit": pdata["limit"],
-                        "capital_required": cost,
-                        "item_id": id4,
+                        "profits": profit_scenarios,
+                        **volumes,
+                        "daily_buy_vol_3": daily_buy_vol_3,
+                        "daily_sell_vol_3": daily_sell_vol_3,
+                        "daily_buy_vol_4": daily_buy_vol_4,
+                        "daily_sell_vol_4": daily_sell_vol_4,
+                        "spread_pct": spread_percent,
+                        "roi_pct": roi_percent,
+                        "ge_limit": potion_data["limit"],
+                        "capital_required": capital_cost,
+                        "expected_fill_3": expected_fill_3,
+                        "item_id": dose4_id,
                     }
                 )
 
+        # Sort by average profit (highest first)
         alerts.sort(key=lambda x: x["avg_profit"], reverse=True)
         return alerts
 
     @app_commands.command(
-        name="osrs-decant", description="Check profitable potion decants"
+        name="osrs-decant",
+        description="Check profitable potion decanting opportunities",
     )
     @app_commands.allowed_installs(guilds=True, users=True)
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
-    async def decant_check(self, interaction: discord.Interaction):
+    @app_commands.describe(
+        min_profit="Minimum average profit per decant (default: 100,000 gp)",
+        min_volume="Minimum average trading volume (default: 20,000)",
+    )
+    async def decant_check(
+        self,
+        interaction: discord.Interaction,
+        min_profit: int = DEFAULT_MIN_PROFIT,
+        min_volume: int = DEFAULT_MIN_VOLUME,
+    ):
         await interaction.response.defer()
+
         try:
+            # Fetch price data
             latest, ts_data, used_cache, cache_time = await self.fetch_prices()
-            alerts = self.analyze_potions(latest, ts_data)
+
+            # Analyze for profitable opportunities
+            alerts = self.analyze_potions(latest, ts_data, min_profit, min_volume)
 
             if not alerts:
-                await interaction.followup.send(
-                    "No profitable potion decants found at this time."
+                embed = discord.Embed(
+                    title="💊 Potion Decant Check",
+                    description=(
+                        "No profitable potion decants found at this time.\n"
+                        f"📉 Minimum profit threshold: `{min_profit:,}` gp\n"
+                        f"📦 Minimum volume: `{min_volume:,}`"
+                    ),
+                    color=discord.Color.orange(),
                 )
+                embed.set_footer(text="Try again later or adjust your filters!")
+                await interaction.followup.send(embed=embed)
                 return
 
-            view = DecantPaginator(alerts, used_cache, cache_time)
+            # Create paginated view
+            view = DecantPaginator(alerts, used_cache, cache_time, self)
             embed = view.create_embed()
             await interaction.followup.send(embed=embed, view=view)
 
         except Exception as e:
-            await interaction.followup.send(f"Error fetching potion prices: {e}")
+            error_embed = discord.Embed(
+                title="❌ Error",
+                description=f"Failed to fetch potion prices:\n```{str(e)[:100]}```",
+                color=discord.Color.red(),
+            )
+            await interaction.followup.send(embed=error_embed)
 
 
 async def setup(bot):

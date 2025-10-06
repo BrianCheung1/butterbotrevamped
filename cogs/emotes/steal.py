@@ -161,19 +161,24 @@ class StealEmote(commands.Cog):
                 animated, original_name, emoji_id = match.groups()
                 file_ext = "gif" if animated == "a" else "png"
                 url = f"https://cdn.discordapp.com/emojis/{emoji_id}.{file_ext}"
-                path = url  # Needed for .endswith check later
+                path = url
                 final_name = name or original_name
             else:
                 # It's a direct image URL
                 parsed = urllib.parse.urlparse(emote_or_url)
                 path = parsed.path.lower()
+                url = emote_or_url
+
+                # ✅ Handle Discord CDN animated .webp links
+                if "discordapp.com/emojis/" in url and "animated=true" in emote_or_url:
+                    url = url.split("?")[0]  # strip query params
+                    url = url.replace(".webp", ".gif")  # force GIF for animated
+                    path = url.lower()
 
                 if not path.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
                     return await interaction.followup.send(
                         "❌ URL must end in .png, .jpg, .jpeg, .gif, or .webp"
                     )
-
-                url = emote_or_url
 
                 if not name:
                     base = os.path.basename(path)
@@ -182,6 +187,7 @@ class StealEmote(commands.Cog):
                     )
                 else:
                     final_name = name
+
         elif attachment:
             # Handle uploaded file
             path = attachment.filename.lower()
@@ -213,12 +219,13 @@ class StealEmote(commands.Cog):
                         )
                     image_data = await resp.read()
 
-            if path.endswith(".webp"):
+            if path.endswith(".webp") and "discordapp.com/emojis/" not in url:
+                # Only convert generic .webp, not Discord CDN (those are handled above)
                 with Image.open(io.BytesIO(image_data)) as im:
                     if im.mode != "RGBA":
                         im = im.convert("RGBA")  # Preserve transparency
                     buf = io.BytesIO()
-                    im.save(buf, format="PNG")  # Always save as PNG for alpha support
+                    im.save(buf, format="PNG")  # Save as PNG for emoji
                     buf.seek(0)
                     emoji_data = buf.read()
             else:

@@ -11,12 +11,9 @@ class Daily(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.reminded_users = set()
-        self.streak_reset_loop.start()
         self.streak_reminder_loop.start()
 
     def cog_unload(self):
-        # Cancel loops cleanly when cog unloads
-        self.streak_reset_loop.cancel()
         self.streak_reminder_loop.cancel()
 
     @app_commands.command(name="daily", description="Claim your daily reward.")
@@ -27,9 +24,11 @@ class Daily(commands.Cog):
         daily_streak, last_daily_at_str = await self.bot.database.user_db.get_daily(
             user.id
         )
+
         daily_base_amount = 1000
         now = datetime.datetime.now(timezone.utc)
 
+        # ---------------- Check streak status ----------------
         reset_streak = False
 
         if last_daily_at_str:
@@ -40,6 +39,7 @@ class Daily(commands.Cog):
             days_since_last_claim = (now.date() - last_claim_time.date()).days
 
             if days_since_last_claim == 0:
+                # Already claimed today
                 next_reset = (now + datetime.timedelta(days=1)).replace(
                     hour=0, minute=0, second=0, microsecond=0
                 )
@@ -51,11 +51,13 @@ class Daily(commands.Cog):
                 )
                 await interaction.response.send_message(msg)
                 return
+
             elif days_since_last_claim >= 3:
+                # Missed 3+ days → streak reset
                 reset_streak = True
                 daily_streak = 0
 
-        # Calculate bonus
+        # ---------------- Calculate reward ----------------
         if daily_streak == 0:
             bonus = 0
         else:
@@ -64,19 +66,21 @@ class Daily(commands.Cog):
 
         total_reward = daily_base_amount + bonus
 
-        # Update balance
+        # ---------------- Update database ----------------
         new_balance = await self.bot.database.user_db.increment_balance(
             user.id, total_reward
         )
 
-        # Update streak & last claim time
         if reset_streak:
-            await self.bot.database.user_db.set_daily(user.id, daily_streak=1)
             current_streak = 1
+            await self.bot.database.user_db.set_daily(
+                user.id, daily_streak=current_streak
+            )
         else:
-            await self.bot.database.user_db.set_daily(user.id)
             current_streak = daily_streak + 1
+            await self.bot.database.user_db.set_daily(user.id)
 
+        # ---------------- Send response ----------------
         embed = discord.Embed(
             title="Daily Reward",
             description=(
@@ -90,48 +94,13 @@ class Daily(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
-    async def reset_streaks(self):
-        """Cleanup logic to reset streaks for users who missed claiming 2+ days."""
-        now = datetime.datetime.now(timezone.utc)
-        users_data = await self.bot.database.user_db.get_all_daily_users()
-        self.bot.logger.info("[Daily] Starting streak reset cleanup...")
-
-        for user_id, daily_streak, last_daily_at_str, _ in users_data:
-            if not last_daily_at_str or daily_streak == 0:
-                continue
-
-            last_claim_time = datetime.datetime.strptime(
-                last_daily_at_str, "%Y-%m-%d %H:%M:%S"
-            ).replace(tzinfo=timezone.utc)
-            days_since_last_claim = (now.date() - last_claim_time.date()).days
-
-            if days_since_last_claim >= 3:
-                await self.bot.database.user_db.set_daily(user_id, daily_streak=0)
-
-                try:
-                    user = self.bot.get_user(user_id)
-                    if not user:
-                        user = await self.bot.fetch_user(user_id)
-
-                    self.bot.logger.info(
-                        f"Reset daily streak for {user.name} ({user.id}), last claimed {last_daily_at_str}"
-                    )
-                except Exception as e:
-                    self.bot.logger.error(
-                        f"Error fetching user {user_id} for logging: {e}"
-                    )
-
-    @tasks.loop(hours=24)
-    async def streak_reset_loop(self):
-        await self.reset_streaks()
-
+    # ---------------- Reminder Loop (kept as-is) ----------------
     @tasks.loop(hours=6)
     async def streak_reminder_loop(self):
         """Remind users 1 day before their streak breaks. Remind once per day."""
         now = datetime.datetime.now(timezone.utc).date()
         users_data = await self.bot.database.user_db.get_all_daily_users()
 
-        # Reset reminded users set daily
         if not hasattr(self, "_last_reminder_day") or self._last_reminder_day != now:
             self.reminded_users.clear()
             self._last_reminder_day = now
@@ -150,9 +119,9 @@ class Daily(commands.Cog):
                     continue
 
                 try:
-                    user = self.bot.get_user(user_id)
-                    if not user:
-                        user = await self.bot.fetch_user(user_id)
+                    user = self.bot.get_user(user_id) or await self.bot.fetch_user(
+                        user_id
+                    )
 
                     await user.send(
                         f"⏰ Hey! Your daily streak of {daily_streak} day(s) is about to break. "

@@ -10,7 +10,6 @@ logger = setup_logger("BuffsDatabaseManager")
 
 
 class BuffsDatabaseManager:
-
     def __init__(
         self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"
     ) -> None:
@@ -35,16 +34,16 @@ class BuffsDatabaseManager:
             minutes=duration_minutes
         )
 
-        query = """
-        INSERT INTO user_buffs (user_id, buff_type, multiplier, expires_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(user_id, buff_type)
-        DO UPDATE SET multiplier = excluded.multiplier, expires_at = excluded.expires_at
-        """
-        await self.connection.execute(
-            query, (user_id, buff_type, multiplier, expires_at)
-        )
-        await self.connection.commit()
+        async with self.db_manager.transaction():
+            await self.connection.execute(
+                """
+                INSERT INTO user_buffs (user_id, buff_type, multiplier, expires_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, buff_type)
+                DO UPDATE SET multiplier = excluded.multiplier, expires_at = excluded.expires_at
+                """,
+                (user_id, buff_type, multiplier, expires_at),
+            )
 
     @db_error_handler
     async def get_buffs(self, user_id: int) -> dict:

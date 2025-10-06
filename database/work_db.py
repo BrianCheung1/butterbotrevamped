@@ -72,51 +72,57 @@ class WorkDatabaseManager:
         set_clause = ", ".join([f"{field} = ?" for field in updates.keys()])
         params = list(updates.values()) + [user_id]
 
-        await self.connection.execute(
-            f"""
-            UPDATE user_work_stats
-            SET {set_clause}
-            WHERE user_id = ?
-            """,
-            params,
-        )
-        await self.connection.commit()
+        async with self.db_manager.transaction():
+            await self.connection.execute(
+                f"""
+                UPDATE user_work_stats
+                SET {set_clause}
+                WHERE user_id = ?
+                """,
+                params,
+            )
 
         return new_xp, new_next_level_xp, current_level, leveled_up
 
     async def migrate_work_levels_to_25_percent_growth(self):
+        """One-time migration - should be moved to migrations folder."""
         async with self.connection.execute(
             "SELECT user_id, mining_xp, fishing_xp FROM user_work_stats"
         ) as cursor:
             users = await cursor.fetchall()
 
-        for user in users:
-            user_id, mining_xp, fishing_xp = user
+        async with self.db_manager.transaction():
+            for user in users:
+                user_id, mining_xp, fishing_xp = user
 
-            def calculate_level_and_next_xp(xp):
-                level = 1
-                xp_required = 50
-                total_needed = 0
+                def calculate_level_and_next_xp(xp):
+                    level = 1
+                    xp_required = 50
+                    total_needed = 0
 
-                while xp >= total_needed + xp_required:
-                    total_needed += xp_required
-                    xp_required = int(xp_required * 1.25)
-                    level += 1
+                    while xp >= total_needed + xp_required:
+                        total_needed += xp_required
+                        xp_required = int(xp_required * 1.25)
+                        level += 1
 
-                return level, xp_required
+                    return level, xp_required
 
-            mining_level, mining_next_xp = calculate_level_and_next_xp(mining_xp)
-            fishing_level, fishing_next_xp = calculate_level_and_next_xp(fishing_xp)
+                mining_level, mining_next_xp = calculate_level_and_next_xp(mining_xp)
+                fishing_level, fishing_next_xp = calculate_level_and_next_xp(fishing_xp)
 
-            await self.connection.execute(
-                """
-                UPDATE user_work_stats
-                SET
-                    mining_level = ?, mining_next_level_xp = ?,
-                    fishing_level = ?, fishing_next_level_xp = ?
-                WHERE user_id = ?
-                """,
-                (mining_level, mining_next_xp, fishing_level, fishing_next_xp, user_id),
-            )
-
-        await self.connection.commit()
+                await self.connection.execute(
+                    """
+                    UPDATE user_work_stats
+                    SET
+                        mining_level = ?, mining_next_level_xp = ?,
+                        fishing_level = ?, fishing_next_level_xp = ?
+                    WHERE user_id = ?
+                    """,
+                    (
+                        mining_level,
+                        mining_next_xp,
+                        fishing_level,
+                        fishing_next_xp,
+                        user_id,
+                    ),
+                )

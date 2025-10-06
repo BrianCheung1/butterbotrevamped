@@ -1,5 +1,3 @@
-import datetime
-
 import aiosqlite
 from constants.steal_config import StealEventType
 from logger import setup_logger
@@ -90,8 +88,8 @@ class StealDatabaseManager:
         else:
             raise ValueError("Invalid StealEventType provided.")
 
-        await self.connection.execute(query, (user_id, amount))
-        await self.connection.commit()
+        async with self.db_manager.transaction():
+            await self.connection.execute(query, (user_id, amount))
 
     @db_error_handler
     async def get_all_steal_stats(self):

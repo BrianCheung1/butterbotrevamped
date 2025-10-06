@@ -1,3 +1,5 @@
+from typing import List, Optional
+
 import aiosqlite
 from logger import setup_logger
 from utils.database_errors import db_error_handler
@@ -6,9 +8,11 @@ logger = setup_logger("MoviesDatabaseManager")
 
 
 class MoviesDatabaseManager:
-
-    def __init__(self, connection: aiosqlite.Connection) -> None:
+    def __init__(
+        self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"
+    ) -> None:
         self.connection = connection
+        self.db_manager = db_manager
 
     @db_error_handler
     async def save_movie(
@@ -19,40 +23,39 @@ class MoviesDatabaseManager:
         imdb_link: str,
         added_by_id: str,
         added_by_name: str,
-        notes: str = None,
+        notes: Optional[str] = None,
     ) -> bool:
-        """Store movie information in the database."""
+        """Store a movie in the database. Returns False if it already exists."""
+        async with self.db_manager.transaction():
+            cursor = await self.connection.execute(
+                """
+                INSERT INTO movies (guild_id, title, imdb_id, imdb_link, added_by_id, added_by_name, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(guild_id, imdb_id) DO NOTHING;
+                """,
+                (
+                    guild_id,
+                    title,
+                    imdb_id,
+                    imdb_link,
+                    added_by_id,
+                    added_by_name,
+                    notes,
+                ),
+            )
+            inserted = cursor.rowcount > 0
 
-        cursor = await self.connection.execute(
-            """
-            INSERT INTO movies(guild_id, title, imdb_id, imdb_link, added_by_id, added_by_name, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(guild_id, imdb_id) DO NOTHING;
-            """,
-            (
-                guild_id,
-                title,
-                imdb_id,
-                imdb_link,
-                added_by_id,
-                added_by_name,
-                notes,
-            ),
-        )
-        await self.connection.commit()
+        if inserted:
+            logger.info(f"Movie '{title}' added by {added_by_name} in guild {guild_id}")
+        else:
+            logger.info(f"Movie '{title}' already exists in guild {guild_id}")
 
-        if cursor.rowcount == 0:
-            # No row was inserted due to conflict
-            return False
-
-        logger.info(f"Movie '{title}' added by {added_by_name} in guild {guild_id}")
-
-        return True
+        return inserted
 
     @db_error_handler
-    async def get_movies(self, guild_id: str) -> list:
-        """Retrieve all movies from the database for a specific guild."""
-        cursor = await self.connection.execute(
+    async def get_movies(self, guild_id: str) -> List[dict]:
+        """Retrieve all movies stored for a specific guild."""
+        async with self.connection.execute(
             """
             SELECT title, imdb_id, imdb_link, added_by_name, notes
             FROM movies
@@ -60,12 +63,10 @@ class MoviesDatabaseManager:
             ORDER BY title;
             """,
             (guild_id,),
-        )
-        rows = await cursor.fetchall()
-        await cursor.close()
+        ) as cursor:
+            rows = await cursor.fetchall()
 
-        # Map rows to a list of dictionaries for easier access
-        movies = [
+        return [
             {
                 "title": row[0],
                 "imdb_id": row[1],
@@ -76,42 +77,39 @@ class MoviesDatabaseManager:
             for row in rows
         ]
 
-        return movies
-
     @db_error_handler
     async def remove_movie(self, guild_id: str, imdb_id: str) -> bool:
-        """Remove a movie from the database for a specific guild."""
-        cursor = await self.connection.execute(
-            """
-            DELETE FROM movies
-            WHERE guild_id = ? AND imdb_id = ?;
-            """,
-            (guild_id, imdb_id),
-        )
-        await self.connection.commit()
-        deleted = cursor.rowcount > 0
-        await cursor.close()
+        """Remove a specific movie from a guild. Returns True if a row was deleted."""
+        async with self.db_manager.transaction():
+            cursor = await self.connection.execute(
+                """
+                DELETE FROM movies
+                WHERE guild_id = ? AND imdb_id = ?;
+                """,
+                (guild_id, imdb_id),
+            )
+            deleted = cursor.rowcount > 0
 
         if deleted:
-            logger.info(f"Movie with IMDb ID {imdb_id} removed from guild {guild_id}")
+            logger.info(f"Movie {imdb_id} removed from guild {guild_id}")
         else:
             logger.warning(
-                f"Attempted to remove nonexistent movie {imdb_id} from guild {guild_id}"
+                f"Tried to remove nonexistent movie {imdb_id} from guild {guild_id}"
             )
 
         return deleted
 
     @db_error_handler
-    async def get_all_movies(self):
-        cursor = await self.connection.execute(
+    async def get_all_movies(self) -> List[dict]:
+        """Retrieve all movies across all guilds."""
+        async with self.connection.execute(
             """
             SELECT guild_id, title, imdb_id, imdb_link, added_by_name, notes
             FROM movies
-            ORDER BY guild_id, title
+            ORDER BY guild_id, title;
             """
-        )
-        rows = await cursor.fetchall()
-        await cursor.close()
+        ) as cursor:
+            rows = await cursor.fetchall()
 
         return [
             {

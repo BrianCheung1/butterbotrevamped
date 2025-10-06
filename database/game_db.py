@@ -24,7 +24,6 @@ class GameDatabaseManager:
         :param user_id: The ID of the user whose game stats should be returned.
         """
         await self.db_manager._create_user_if_not_exists(user_id)
-        # If user exists, fetch stats from the game table
         async with self.connection.execute(
             "SELECT * FROM user_game_stats WHERE user_id = ?", (user_id,)
         ) as cursor:
@@ -59,48 +58,47 @@ class GameDatabaseManager:
         total_won_field = f"{game_type.value}_total_won"
         total_lost_field = f"{game_type.value}_total_lost"
 
-        if win is True:
-            await self.connection.execute(
-                f"""
-                INSERT INTO user_game_stats (user_id)
-                VALUES (?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    {won_field} = {won_field} + 1,
-                    {total_field} = {total_field} + 1,
-                    {total_won_field} = {total_won_field} + ?
-                """,
-                (
-                    user_id,
-                    amount,
-                ),
-            )
-        elif win is False:
-            await self.connection.execute(
-                f"""
-                INSERT INTO user_game_stats (user_id)
-                VALUES (?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    {lost_field} = {lost_field} + 1,
-                    {total_field} = {total_field} + 1,
-                    {total_lost_field} = {total_lost_field} + ?
-                """,
-                (
-                    user_id,
-                    amount,
-                ),
-            )
-        else:
-            await self.connection.execute(
-                f"""
-                INSERT INTO user_game_stats (user_id)
-                VALUES (?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    {total_field} = {total_field} + 1
-                """,
-                (user_id,),
-            )
-
-        await self.connection.commit()
+        async with self.db_manager.transaction():
+            if win is True:
+                await self.connection.execute(
+                    f"""
+                    INSERT INTO user_game_stats (user_id)
+                    VALUES (?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        {won_field} = {won_field} + 1,
+                        {total_field} = {total_field} + 1,
+                        {total_won_field} = {total_won_field} + ?
+                    """,
+                    (
+                        user_id,
+                        amount,
+                    ),
+                )
+            elif win is False:
+                await self.connection.execute(
+                    f"""
+                    INSERT INTO user_game_stats (user_id)
+                    VALUES (?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        {lost_field} = {lost_field} + 1,
+                        {total_field} = {total_field} + 1,
+                        {total_lost_field} = {total_lost_field} + ?
+                    """,
+                    (
+                        user_id,
+                        amount,
+                    ),
+                )
+            else:
+                await self.connection.execute(
+                    f"""
+                    INSERT INTO user_game_stats (user_id)
+                    VALUES (?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        {total_field} = {total_field} + 1
+                    """,
+                    (user_id,),
+                )
 
     @db_error_handler
     async def log_roll_history(
@@ -111,29 +109,28 @@ class GameDatabaseManager:
         result: str,
         amount: int,
     ) -> None:
-        await self.connection.execute(
-            """
-            INSERT INTO roll_history (user_id, user_roll, dealer_roll, result, amount)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (user_id, user_roll, dealer_roll, result, amount),
-        )
+        async with self.db_manager.transaction():
+            await self.connection.execute(
+                """
+                INSERT INTO roll_history (user_id, user_roll, dealer_roll, result, amount)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (user_id, user_roll, dealer_roll, result, amount),
+            )
 
-        # Optional: limit to 10 most recent entries
-        await self.connection.execute(
-            """
-            DELETE FROM roll_history
-            WHERE id NOT IN (
-                SELECT id FROM roll_history
-                WHERE user_id = ?
-                ORDER BY timestamp DESC
-                LIMIT 10
-            ) AND user_id = ?
-            """,
-            (user_id, user_id),
-        )
-
-        await self.connection.commit()
+            # Optional: limit to 10 most recent entries
+            await self.connection.execute(
+                """
+                DELETE FROM roll_history
+                WHERE id NOT IN (
+                    SELECT id FROM roll_history
+                    WHERE user_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT 10
+                ) AND user_id = ?
+                """,
+                (user_id, user_id),
+            )
 
     @db_error_handler
     async def get_roll_history(self, user_id: int, limit: int = 10) -> list[dict]:

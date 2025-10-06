@@ -1,25 +1,31 @@
-# database/reminders_db.py
-
+from __future__ import annotations
 from datetime import datetime, timezone
+from typing import List, Tuple
 
 import aiosqlite
 from logger import setup_logger
+from utils.database_errors import db_error_handler
 
 logger = setup_logger("RemindersDatabaseManager")
 
 
 class RemindersDatabaseManager:
-    def __init__(self, connection: aiosqlite.Connection) -> None:
+    def __init__(self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"):
         self.connection = connection
+        self.db_manager = db_manager
 
+    @db_error_handler
     async def add_reminder(self, user_id: int, reminder: str, remind_at: datetime):
-        await self.connection.execute(
-            "INSERT INTO reminders (user_id, reminder, remind_at) VALUES (?, ?, ?)",
-            (str(user_id), reminder, remind_at.isoformat()),
-        )
-        await self.connection.commit()
+        """Add a new reminder for a user."""
+        async with self.db_manager.transaction():
+            await self.connection.execute(
+                "INSERT INTO reminders (user_id, reminder, remind_at) VALUES (?, ?, ?)",
+                (str(user_id), reminder, remind_at.isoformat()),
+            )
 
-    async def get_due_reminders(self) -> list[tuple[int, str, str]]:
+    @db_error_handler
+    async def get_due_reminders(self) -> List[Tuple[int, str, str]]:
+        """Fetch reminders whose time is due."""
         now = datetime.now(timezone.utc).isoformat()
         async with self.connection.execute(
             "SELECT id, user_id, reminder FROM reminders WHERE remind_at <= ?",
@@ -27,13 +33,16 @@ class RemindersDatabaseManager:
         ) as cursor:
             return await cursor.fetchall()
 
+    @db_error_handler
     async def delete_reminder(self, reminder_id: int):
-        await self.connection.execute(
-            "DELETE FROM reminders WHERE id = ?", (reminder_id,)
-        )
-        await self.connection.commit()
+        """Delete a reminder by its ID."""
+        async with self.db_manager.transaction():
+            await self.connection.execute(
+                "DELETE FROM reminders WHERE id = ?", (reminder_id,)
+            )
 
-    async def get_user_reminders(self, user_id: int) -> list[tuple[int, str, str]]:
+    @db_error_handler
+    async def get_user_reminders(self, user_id: int) -> List[Tuple[int, str, str]]:
         """Return list of (id, reminder, remind_at ISO string) for the given user."""
         async with self.connection.execute(
             "SELECT id, reminder, remind_at FROM reminders WHERE user_id = ? ORDER BY remind_at ASC",

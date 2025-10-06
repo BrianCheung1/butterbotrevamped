@@ -8,6 +8,7 @@ CHANNEL_TYPES = {
     "Steam Games": "steam_games_channel_id",
     "Leaderboard Announcements": "leaderboard_announcements_channel_id",
     "Mod Logs": "mod_log_channel_id",
+    "OSRS Dumps": "osrs_channel_id",
     # Add more here as needed
 }
 
@@ -23,9 +24,26 @@ async def broadcast_embed_to_guilds(
         if not channel_id:
             continue
 
-        channel = guild.get_channel(channel_id)
-        if channel is None:
+        try:
+            # Fetch channel (works even for archived threads)
+            channel = await bot.fetch_channel(channel_id)
+        except discord.NotFound:
             continue
+        except discord.Forbidden:
+            bot.logger.warning(
+                f"Cannot access channel {channel_id} in guild {guild.id}"
+            )
+            continue
+
+        # Unarchive thread if necessary
+        if isinstance(channel, discord.Thread) and channel.archived:
+            try:
+                await channel.edit(archived=False)
+            except discord.Forbidden:
+                bot.logger.warning(
+                    f"Cannot unarchive thread {channel.name} ({channel.id}) in guild {guild.id}"
+                )
+                continue
 
         try:
             await channel.send(embed=embed, view=view)
