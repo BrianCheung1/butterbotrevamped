@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from database import DatabaseManager
 from logger import setup_logger
 from utils.valorant_helpers import load_cached_players_from_db
+from utils.osrs_data_manager import OSRSDataManager
 
 # Load environment variables from .env file
 load_dotenv()
@@ -29,6 +30,7 @@ class MyBot(commands.Bot):
         self.invite_link = os.getenv("INVITE_LINK")
         self.active_blackjack_players = set()
         self.valorant_players = {}
+        self.osrs_data = OSRSDataManager(self)
 
     async def init_db(self) -> None:
         async with aiosqlite.connect(
@@ -69,7 +71,7 @@ class MyBot(commands.Bot):
 
         if failed_cogs:
             self.logger.error(
-                f"Failed to load the following cogs:\n" + "\n".join(failed_cogs)
+                "Failed to load the following cogs:\n" + "\n".join(failed_cogs)
             )
 
     async def on_ready(self) -> None:
@@ -93,6 +95,7 @@ class MyBot(commands.Bot):
         self.valorant_players = await load_cached_players_from_db(
             self.database.players_db
         )
+        await self.osrs_data.initialize()
         await self.load_cogs()
 
     async def on_message(self, message: discord.Message) -> None:

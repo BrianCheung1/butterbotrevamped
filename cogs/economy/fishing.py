@@ -7,12 +7,8 @@ from constants.fishing_config import FISHING_RARITY_TIERS
 from discord import app_commands
 from discord.ext import commands
 from utils.equips import get_tool_bonus
-from utils.work import (
-    FishingResult,
-    calculate_value_bonuses,
-    calculate_xp_bonuses,
-    create_work_embed,
-)
+from utils.work import (FishingResult, calculate_value_bonuses,
+                        calculate_xp_bonuses, create_work_embed)
 
 
 async def perform_fishing(bot, user_id) -> FishingResult:

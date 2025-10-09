@@ -1,6 +1,5 @@
 import discord
 
-
 # Maps display name to DB field name
 CHANNEL_TYPES = {
     "Interest": "interest_channel_id",

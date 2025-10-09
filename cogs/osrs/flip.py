@@ -1,37 +1,33 @@
 import time
-from datetime import datetime, timedelta
 
 import discord
-import requests
 from discord import app_commands
 from discord.ext import commands
 
-BASE_URL = "https://prices.runescape.wiki/api/v1/osrs"
-
-# More relaxed Configuration for debugging
-MIN_VOLUME_1H = 50_000  # Reduced from 50,000
-MIN_VOLUME_5M = 5_000  # Reduced from 5,000
-MIN_VOLUME_24H = 50_000  # Reduced from 500,000
+# Configuration
+MIN_VOLUME_1H = 50_000
+MIN_VOLUME_5M = 5_000
+MIN_VOLUME_24H = 50_000
 TAX_RATE = 0.02
 TOP_N = 10
 MAX_ITEMS_FEASIBLE = 20_000
 MIN_PROFIT_MARGIN = 1
-MIN_ROI = 0.5  # Reduced from 1.0
+MIN_ROI = 0.5
 MAX_ITEM_PRICE = 50_000_000
 MIN_RECENT_TRADES = 2
 
-# More relaxed thresholds for debugging
-MIN_LIQUIDITY_SCORE = 0.3  # Reduced from 0.7
-MAX_PRICE_VOLATILITY = 0.25  # Increased from 0.15
+MIN_LIQUIDITY_SCORE = 0.3
+MAX_PRICE_VOLATILITY = 0.25
 RECENCY_WEIGHT = 0.3
-MAX_TRADE_AGE_MINUTES = 60  # Maximum age for trades in minutes (1 hour)
+MAX_TRADE_AGE_MINUTES = 60
 
 
 class OSRSFlips(commands.Cog):
-    """Debug version of OSRS flipping cog to identify filtering issues."""
+    """OSRS flipping cog using centralized data manager."""
 
     def __init__(self, bot):
         self.bot = bot
+        self.data_manager = bot.osrs_data
         self.debug_stats = {
             "total_items": 0,
             "members_only": 0,
@@ -150,39 +146,42 @@ class OSRSFlips(commands.Cog):
             f"Recent trades (Buy: {buy_age // 60}m, Sell: {sell_age // 60}m ago)",
         )
 
-    @app_commands.command(
-        name="osrs-flips",
-        description="Debug version - shows filtering statistics and relaxed criteria",
-    )
-    async def osrs_flip_debug(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+    async def analyze_flips(self, force_refresh: bool = False):
+        """
+        Analyze all items for flipping opportunities using data manager.
 
+        Args:
+            force_refresh: Force bypass cache
+
+        Returns:
+            List of flip opportunities
+        """
         # Reset debug stats
         self.debug_stats = {key: 0 for key in self.debug_stats.keys()}
 
-        # Fetch all required data
+        # Fetch all required data using data manager (all cached!)
         try:
-            endpoints = {
-                "1h": f"{BASE_URL}/1h",
-                "5m": f"{BASE_URL}/5m",
-                "24h": f"{BASE_URL}/24h",
-                "latest": f"{BASE_URL}/latest",
-                "mapping": f"{BASE_URL}/mapping",
+            data_1h = await self.data_manager.get_period_data("1h", force_refresh)
+            data_5m = await self.data_manager.get_period_data("5m", force_refresh)
+            data_24h = await self.data_manager.get_period_data("24h", force_refresh)
+            latest_data = await self.data_manager.get_latest_prices(
+                force_refresh=force_refresh
+            )
+            mapping = await self.data_manager.get_mapping(force_refresh)
+
+            data = {
+                "1h": data_1h,
+                "5m": data_5m,
+                "24h": data_24h,
+                "latest": latest_data.get("data", {}),
+                "mapping": {item["id"]: item for item in mapping},
             }
 
-            data = {}
-            for period, url in endpoints.items():
-                resp = requests.get(url, timeout=15)
-                resp.raise_for_status()
-
-                if period == "mapping":
-                    data[period] = {item["id"]: item for item in resp.json()}
-                else:
-                    data[period] = resp.json().get("data", {})
-
         except Exception as e:
-            await interaction.followup.send(f"Error fetching data: {e}")
-            return
+            self.bot.logger.error(
+                f"[OSRSFlips] Error fetching data: {e}", exc_info=True
+            )
+            raise
 
         # Analyze flips with debug tracking
         flips = []
@@ -258,7 +257,7 @@ class OSRSFlips(commands.Cog):
             else:
                 continue
 
-            # FIXED: Recency filter - check if trades are recent enough for quick flipping
+            # Recency filter - check if trades are recent enough for quick flipping
             recent_check, recency_msg = self.check_trade_recency(low_time, high_time)
             if recent_check:
                 self.debug_stats["recent_trades"] += 1
@@ -283,7 +282,7 @@ class OSRSFlips(commands.Cog):
             else:
                 continue
 
-            # Liquidity analysis (more lenient)
+            # Liquidity analysis
             liquidity_score = self.calculate_liquidity_score(
                 vol_buy_1h,
                 vol_sell_1h,
@@ -331,6 +330,7 @@ class OSRSFlips(commands.Cog):
             flips.append(
                 {
                     "name": name,
+                    "item_id": item_id,
                     "buy_price": buy_price,
                     "sell_price": sell_price,
                     "profit_per_item": profit_per_item,
@@ -349,36 +349,36 @@ class OSRSFlips(commands.Cog):
                     "vol_sell_5m": vol_sell_5m,
                     "last_buy": last_buy,
                     "last_sell": last_sell,
+                    "tax": tax,
                 }
             )
 
-        # Create debug report
+        # Sort by weighted profit (highest to lowest)
+        flips.sort(key=lambda x: x["weighted_profit"], reverse=True)
+
+        return flips
+
+    @app_commands.command(
+        name="osrs-flips",
+        description="Find profitable OSRS flipping opportunities with live market data",
+    )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+    async def osrs_flip(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
+        try:
+            flips = await self.analyze_flips()
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error fetching data: {e}")
+            return
+
+        # Create report embed
         embed = discord.Embed(
-            title="🔍 OSRS Flips Debug Report",
-            description="Analysis of filtering process",
-            color=discord.Color.orange(),
+            title="🔍 OSRS Flips Analysis",
+            description="Top flipping opportunities based on live market data",
+            color=discord.Color.gold() if flips else discord.Color.orange(),
         )
-
-        # Add filtering statistics
-        stats_text = "\n".join(
-            [
-                f"**Total Items Processed:** {self.debug_stats['total_items']:,}",
-                f"**Members Only:** {self.debug_stats['members_only']:,}",
-                f"**Has Valid Name:** {self.debug_stats['has_name']:,}",
-                f"**1H Volume Pass:** {self.debug_stats['volume_1h_pass']:,}",
-                f"**5M Volume Pass:** {self.debug_stats['volume_5m_pass']:,}",
-                f"**Has Prices:** {self.debug_stats['has_prices']:,}",
-                f"**Valid Price Spread:** {self.debug_stats['price_valid']:,}",
-                f"**Not Too Expensive:** {self.debug_stats['not_too_expensive']:,}",
-                f"**Recent Trades:** {self.debug_stats['recent_trades']:,}",
-                f"**Positive Profit:** {self.debug_stats['profit_positive']:,}",
-                f"**ROI Pass:** {self.debug_stats['roi_pass']:,}",
-                f"**Liquidity Pass:** {self.debug_stats['liquidity_pass']:,}",
-                f"**Final Candidates:** {self.debug_stats['final_candidates']:,}",
-            ]
-        )
-
-        # embed.add_field(name="📊 Filtering Statistics", value=stats_text, inline=False)
 
         # Add current filter settings
         filter_text = "\n".join(
@@ -393,24 +393,21 @@ class OSRSFlips(commands.Cog):
         embed.add_field(name="⚙️ Current Filters", value=filter_text, inline=False)
 
         if flips:
-            # Sort and show results
-            flips.sort(key=lambda x: x["weighted_profit"], reverse=True)
-
             embed.add_field(
                 name="✅ Found Flips",
                 value=f"Found {len(flips)} viable flips! Showing top {min(len(flips), 10)}:",
                 inline=False,
             )
 
-            # Show up to 10 items instead of just 3
+            # Show up to 10 items
             items_to_show = min(len(flips), 10)
             for i, flip in enumerate(flips[:items_to_show], 1):
                 flip_text = (
-                    f"**{flip['name']}**\n"
+                    f"**[{flip['name']}](https://prices.osrs.cloud/item/{flip['item_id']})**\n"
                     f"Buy: {flip['buy_price']:,} → Sell: {flip['sell_price']:,}\n"
                     f"Profit: {flip['profit_per_item']:,} gp ({flip['roi']}% ROI)\n"
                     f"Expected: {flip['expected_profit']:,} gp\n"
-                    f"Quality: {flip['quality_score']}\n"
+                    f"Quality: {flip['quality_score']} | Tax: {flip['tax']:,} gp\n"
                     f"Last Buy: {flip['last_buy']}\n"
                     f"Last Sell: {flip['last_sell']}\n"
                     f"5M Volume - Buy: {flip['vol_buy_5m']:,}, Sell: {flip['vol_sell_5m']:,}"
@@ -423,169 +420,11 @@ class OSRSFlips(commands.Cog):
         else:
             embed.add_field(
                 name="❌ No Results",
-                value="No items passed all filters. Consider relaxing criteria.",
+                value="No items passed all filters. Consider relaxing criteria or trying again later.",
                 inline=False,
             )
 
-        await interaction.followup.send(embed=embed)
-
-    @app_commands.command(
-        name="test-item", description="Test a specific item against all filters"
-    )
-    async def test_item(self, interaction: discord.Interaction, item_name: str):
-        await interaction.response.defer()
-
-        try:
-            # Fetch all data
-            endpoints = {
-                "1h": f"{BASE_URL}/1h",
-                "5m": f"{BASE_URL}/5m",
-                "24h": f"{BASE_URL}/24h",
-                "latest": f"{BASE_URL}/latest",
-                "mapping": f"{BASE_URL}/mapping",
-            }
-
-            data = {}
-            for period, url in endpoints.items():
-                resp = requests.get(url, timeout=15)
-                resp.raise_for_status()
-                if period == "mapping":
-                    data[period] = {item["id"]: item for item in resp.json()}
-                else:
-                    data[period] = resp.json().get("data", {})
-
-        except Exception as e:
-            await interaction.followup.send(f"Error fetching data: {e}")
-            return
-
-        # Find the item
-        target_item = None
-        target_id = None
-        for item_id, meta in data["mapping"].items():
-            if item_name.lower() in meta.get("name", "").lower():
-                target_item = meta
-                target_id = str(item_id)
-                break
-
-        if not target_item:
-            await interaction.followup.send(
-                f"Item '{item_name}' not found in mapping data."
-            )
-            return
-
-        # Test all filters
-        name = target_item.get("name", "Unknown")
-        embed = discord.Embed(title=f"🔬 Item Test: {name}", color=discord.Color.blue())
-
-        # Test each filter step by step
-        results = []
-
-        # Members check
-        is_members = target_item.get("members", False)
-        results.append(f"**Members Only:** {'✅ Pass' if is_members else '❌ Fail'}")
-
-        if not is_members:
-            embed.description = "❌ Item failed: Not a members item"
-            embed.add_field(name="Test Results", value="\n".join(results), inline=False)
-            await interaction.followup.send(embed=embed)
-            return
-
-        # Get data for this item
-        price_1h = data["1h"].get(target_id, {})
-        price_5m = data["5m"].get(target_id, {})
-        price_24h = data["24h"].get(target_id, {})
-        latest = data["latest"].get(target_id, {})
-
-        # Volume checks
-        vol_buy_1h = price_1h.get("lowPriceVolume", 0)
-        vol_sell_1h = price_1h.get("highPriceVolume", 0)
-        vol_buy_5m = price_5m.get("lowPriceVolume", 0)
-        vol_sell_5m = price_5m.get("highPriceVolume", 0)
-
-        vol_1h_pass = vol_buy_1h >= MIN_VOLUME_1H and vol_sell_1h >= MIN_VOLUME_1H
-        vol_5m_pass = vol_buy_5m >= MIN_VOLUME_5M and vol_sell_5m >= MIN_VOLUME_5M
-
-        results.append(
-            f"**1H Volume:** {'✅ Pass' if vol_1h_pass else '❌ Fail'} (Buy: {vol_buy_1h:,}, Sell: {vol_sell_1h:,})"
-        )
-        results.append(
-            f"**5M Volume:** {'✅ Pass' if vol_5m_pass else '❌ Fail'} (Buy: {vol_buy_5m:,}, Sell: {vol_sell_5m:,})"
-        )
-
-        # Price checks
-        buy_price = latest.get("low")
-        sell_price = latest.get("high")
-        has_prices = buy_price is not None and sell_price is not None
-        valid_spread = has_prices and buy_price < sell_price
-
-        results.append(
-            f"**Has Prices:** {'✅ Pass' if has_prices else '❌ Fail'} (Buy: {buy_price}, Sell: {sell_price})"
-        )
-        results.append(f"**Valid Spread:** {'✅ Pass' if valid_spread else '❌ Fail'}")
-
-        if has_prices and valid_spread:
-            # Trade recency check - FIXED VERSION
-            low_time = latest.get("lowTime")
-            high_time = latest.get("highTime")
-
-            recent_check, recency_msg = self.check_trade_recency(low_time, high_time)
-            results.append(
-                f"**Recent Trades:** {'✅ Pass' if recent_check else '❌ Fail'} ({recency_msg})"
-            )
-
-            # Profit calculations
-            raw_margin = sell_price - buy_price
-            tax = int(sell_price * TAX_RATE)
-            profit_per_item = raw_margin - tax
-            roi = (profit_per_item / buy_price * 100) if buy_price > 0 else 0
-
-            profit_pass = profit_per_item >= MIN_PROFIT_MARGIN
-            roi_pass = roi >= MIN_ROI
-
-            results.append(
-                f"**Profit:** {'✅ Pass' if profit_pass else '❌ Fail'} ({profit_per_item:,} gp per item)"
-            )
-            results.append(
-                f"**ROI:** {'✅ Pass' if roi_pass else '❌ Fail'} ({roi:.2f}%)"
-            )
-
-            # Liquidity score
-            vol_buy_24h = price_24h.get("lowPriceVolume", 0)
-            vol_sell_24h = price_24h.get("highPriceVolume", 0)
-
-            liquidity_score = self.calculate_liquidity_score(
-                vol_buy_1h,
-                vol_sell_1h,
-                vol_buy_5m,
-                vol_sell_5m,
-                vol_buy_24h,
-                vol_sell_24h,
-            )
-            liquidity_pass = liquidity_score >= MIN_LIQUIDITY_SCORE
-
-            results.append(
-                f"**Liquidity Score:** {'✅ Pass' if liquidity_pass else '❌ Fail'} ({liquidity_score:.2f})"
-            )
-
-        embed.add_field(name="📋 Test Results", value="\n".join(results), inline=False)
-
-        # Add raw data with last buy/sell times
-        raw_data = [
-            f"**GE Limit:** {target_item.get('limit', 'Unknown')}",
-            f"**Item ID:** {target_id}",
-            (
-                f"**Last Buy:** <t:{low_time}:F> (<t:{low_time}:R>)"
-                if low_time
-                else "**Last Buy:** N/A"
-            ),
-            (
-                f"**Last Sell:** <t:{high_time}:F> (<t:{high_time}:R>)"
-                if high_time
-                else "**Last Sell:** N/A"
-            ),
-        ]
-        embed.add_field(name="📊 Raw Data", value="\n".join(raw_data), inline=False)
-
+        embed.set_footer(text="Data from OSRS Wiki • Refreshed live")
         await interaction.followup.send(embed=embed)
 
 

@@ -6,12 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils.channels import broadcast_embed_to_guilds
-from utils.valorant_helpers import (
-    get_player_mmr,
-    get_rank_value,
-    name_autocomplete,
-    tag_autocomplete,
-)
+from utils.valorant_helpers import (get_player_mmr, get_rank_value,
+                                    name_autocomplete, tag_autocomplete)
 
 
 class ValorantLeaderboard(commands.Cog):

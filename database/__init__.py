@@ -1,5 +1,6 @@
-import aiosqlite
 from contextlib import asynccontextmanager
+
+import aiosqlite
 from logger import setup_logger
 
 from .ai_db import AIDatabaseManager

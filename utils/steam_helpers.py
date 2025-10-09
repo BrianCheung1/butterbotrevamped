@@ -1,7 +1,8 @@
 import re
-import requests
 from typing import Optional
+
 import discord
+import requests
 from discord import app_commands
 
 

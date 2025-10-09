@@ -4,14 +4,9 @@ import os
 import time
 from datetime import datetime
 
-import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
-
-# API URLs
-PRICE_URL = "https://prices.runescape.wiki/api/v1/osrs/latest"
-TS_URL = "https://prices.runescape.wiki/api/v1/osrs/timeseries"
 
 # Default filters
 DEFAULT_MIN_PROFIT = 100_000
@@ -160,8 +155,10 @@ class DecantPaginator(discord.ui.View):
     ):
         await interaction.response.defer()
         try:
-            latest, ts_data, used_cache, cache_time = await self.cog.fetch_prices()
-            alerts = self.cog.analyze_potions(latest, ts_data)
+            # Force refresh data through data manager
+            alerts, used_cache, cache_time = await self.cog.analyze_decants(
+                force_refresh=True
+            )
 
             if not alerts:
                 embed = discord.Embed(
@@ -196,9 +193,8 @@ class DecantPaginator(discord.ui.View):
 class DecantChecker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self._price_cache = {"timestamp": 0, "data": None}
-        self._ts_cache = {"timestamp": 0, "data": None}
-        self._cache_duration = 60  # 1 minute cache
+        # Use centralized data manager instead of local caching
+        self.data_manager = bot.osrs_data
 
     def aggregate_5m_data(self, data_points):
         """Aggregate 5-minute timeseries data into daily stats"""
@@ -246,9 +242,6 @@ class DecantChecker(commands.Cog):
     ) -> int:
         """
         Estimate how many potions of `desired_qty` are likely to fill based on recent volume.
-        - ts_volume: total buy volume from recent 5m intervals
-        - ge_limit: GE max buy limit for the potion
-        - adjustment_factor: tweak to account for market activity
         """
         ts_volume /= 288
         if ts_volume <= 0:
@@ -257,66 +250,6 @@ class DecantChecker(commands.Cog):
         fill_estimate = min(desired_qty, math.ceil(ts_volume / adjustment_factor))
         return min(fill_estimate, ge_limit)
 
-    async def fetch_prices(self):
-        """Fetch latest + 5m timeseries prices with caching"""
-        now = time.time()
-        used_cache = False
-
-        # Fetch latest prices (unchanged)
-        if (
-            not self._price_cache["data"]
-            or now - self._price_cache["timestamp"] > self._cache_duration
-        ):
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    PRICE_URL, headers={"User-Agent": "PotionDecantChecker/2.0"}
-                ) as resp:
-                    resp.raise_for_status()
-                    latest = await resp.json()
-                    self._price_cache = {"timestamp": now, "data": latest["data"]}
-        else:
-            used_cache = True
-
-        # Fetch 5m timeseries data for the last 24 hours
-        if (
-            not self._ts_cache["data"]
-            or now - self._ts_cache["timestamp"] > self._cache_duration
-        ):
-            ts_data = {}
-            async with aiohttp.ClientSession() as session:
-                potion_ids = {str(v["3"]) for v in POTIONS.values()} | {
-                    str(v["4"]) for v in POTIONS.values()
-                }
-
-                for potion_id in potion_ids:
-                    # Use 5m timestep instead of 24h
-                    url = f"{TS_URL}?timestep=5m&id={potion_id}"
-                    async with session.get(
-                        url, headers={"User-Agent": "PotionDecantChecker/2.0"}
-                    ) as resp:
-                        resp.raise_for_status()
-                        data = await resp.json()
-                        data_points = data.get("data", [])
-
-                        # Get data from the last 24 hours (288 data points at 5min intervals)
-                        # Take the last 288 points or all available if less
-                        recent_points = (
-                            data_points[-288:]
-                            if len(data_points) > 288
-                            else data_points
-                        )
-
-                        # Aggregate the 5-minute data
-                        aggregated = self.aggregate_5m_data(recent_points)
-                        ts_data[potion_id] = aggregated
-
-            self._ts_cache = {"timestamp": now, "data": ts_data}
-        else:
-            used_cache = True
-
-        cache_time = min(self._price_cache["timestamp"], self._ts_cache["timestamp"])
-        return self._price_cache["data"], self._ts_cache["data"], used_cache, cache_time
-
     @staticmethod
     def calc_profit(buy3_price, sell4_price):
         """Calculate profit for 2000-dose purchase with 2% GE tax"""
@@ -324,14 +257,51 @@ class DecantChecker(commands.Cog):
         revenue = sell4_price * 1500 * 0.98  # Sell 1500x 4-dose potions (2% tax)
         return revenue - cost
 
-    def analyze_potions(
+    async def analyze_decants(
         self,
-        latest,
-        ts_data,
         min_profit=DEFAULT_MIN_PROFIT,
         min_volume=DEFAULT_MIN_VOLUME,
+        force_refresh=False,
     ):
-        """Analyze potions for profitable decanting opportunities"""
+        """
+        Analyze potions for profitable decanting opportunities using data manager.
+
+        Returns:
+            Tuple of (alerts_list, used_cache, cache_timestamp)
+        """
+        # Get all required potion IDs
+        potion_ids = list(
+            {v["3"] for v in POTIONS.values()} | {v["4"] for v in POTIONS.values()}
+        )
+
+        # Fetch latest prices (cached by data manager)
+        latest_data = await self.data_manager.get_latest_prices(
+            potion_ids, force_refresh=force_refresh
+        )
+        latest = latest_data.get("data", {})
+
+        # Check if we used cache
+        cache_key = f"latest_{','.join(map(str, potion_ids))}"
+        used_cache = not force_refresh and self.data_manager._is_cache_valid(
+            cache_key, "latest"
+        )
+        cache_time = self.data_manager._cache_timestamps.get(cache_key, time.time())
+
+        # Fetch 5m timeseries data for all potions (cached by data manager)
+        ts_data = {}
+        for potion_id in potion_ids:
+            timeseries = await self.data_manager.get_timeseries(
+                potion_id, timestep="5m", force_refresh=force_refresh
+            )
+
+            # Get data from the last 24 hours (288 data points at 5min intervals)
+            recent_points = timeseries[-288:] if len(timeseries) > 288 else timeseries
+
+            # Aggregate the 5-minute data
+            aggregated = self.aggregate_5m_data(recent_points)
+            ts_data[str(potion_id)] = aggregated
+
+        # Analyze potions
         alerts = []
         current_time = time.time()
 
@@ -439,7 +409,7 @@ class DecantChecker(commands.Cog):
 
             expected_fill_3 = self.expected_fill(
                 desired_order,
-                volumes["avg_low_vol_3"],  # use 5m aggregated buy volume
+                volumes["avg_low_vol_3"],
                 potion_data["limit"],
             )
 
@@ -488,7 +458,7 @@ class DecantChecker(commands.Cog):
 
         # Sort by average profit (highest first)
         alerts.sort(key=lambda x: x["avg_profit"], reverse=True)
-        return alerts
+        return alerts, used_cache, cache_time
 
     @app_commands.command(
         name="osrs-decant",
@@ -498,7 +468,7 @@ class DecantChecker(commands.Cog):
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(
         min_profit="Minimum average profit per decant (default: 100,000 gp)",
-        min_volume="Minimum average trading volume (default: 20,000)",
+        min_volume="Minimum average trading volume (default: 50,000)",
     )
     async def decant_check(
         self,
@@ -509,11 +479,10 @@ class DecantChecker(commands.Cog):
         await interaction.response.defer()
 
         try:
-            # Fetch price data
-            latest, ts_data, used_cache, cache_time = await self.fetch_prices()
-
-            # Analyze for profitable opportunities
-            alerts = self.analyze_potions(latest, ts_data, min_profit, min_volume)
+            # Analyze using data manager
+            alerts, used_cache, cache_time = await self.analyze_decants(
+                min_profit, min_volume
+            )
 
             if not alerts:
                 embed = discord.Embed(
@@ -535,6 +504,7 @@ class DecantChecker(commands.Cog):
             await interaction.followup.send(embed=embed, view=view)
 
         except Exception as e:
+            self.bot.logger.error(f"[DecantChecker] Error: {e}", exc_info=True)
             error_embed = discord.Embed(
                 title="❌ Error",
                 description=f"Failed to fetch potion prices:\n```{str(e)[:100]}```",
