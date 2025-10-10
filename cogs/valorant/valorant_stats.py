@@ -173,60 +173,52 @@ class ValorantStats(commands.Cog):
                 "kill_details": [],
             }
 
-    async def get_first_blood_stats(self, match_id: str, player_puuid: str):
-        """
-        Fetch detailed match data and calculate first bloods/deaths for a player.
-        Backwards compatibility wrapper.
+    async def get_all_first_blood_stats(self, match_data: dict):
+            """
+            Get first blood/death stats for ALL players in a match from pre-fetched data.
+            
+            Args:
+                match_data: The full match data dict (from get_match_details)
+            
+            Returns: Dict[puuid, (first_bloods, first_deaths)]
+            """
+            try:
+                if not match_data or "data" not in match_data:
+                    return {}
 
-        Returns: (first_bloods, first_deaths)
-        """
-        stats = await self.get_player_kill_stats(match_id, player_puuid)
-        return stats["first_bloods"], stats["first_deaths"]
+                rounds = match_data["data"].get("rounds", [])
+                player_stats = defaultdict(lambda: {"fb": 0, "fd": 0})
 
-    async def get_all_first_blood_stats(self, match_id: str):
-        """
-        Get first blood/death stats for ALL players in a match.
+                for round_data in rounds:
+                    # Collect all kill events for this round
+                    kill_events = []
+                    for player_stat in round_data.get("player_stats", []):
+                        kill_events.extend(player_stat.get("kill_events", []))
 
-        Returns: Dict[puuid, (first_bloods, first_deaths)]
-        """
-        try:
-            match_data = await self.data_manager.get_match_details(match_id)
-            if not match_data or "data" not in match_data:
-                return {}
+                    if not kill_events:
+                        continue
 
-            rounds = match_data["data"].get("rounds", [])
-            player_stats = defaultdict(lambda: {"fb": 0, "fd": 0})
+                    # Find first kill
+                    sorted_kills = sorted(
+                        kill_events, key=lambda k: k.get("kill_time_in_round", float("inf"))
+                    )
+                    first_kill = sorted_kills[0]
 
-            for round_data in rounds:
-                # Collect all kill events for this round
-                kill_events = []
-                for player_stat in round_data.get("player_stats", []):
-                    kill_events.extend(player_stat.get("kill_events", []))
+                    killer_puuid = first_kill.get("killer_puuid")
+                    victim_puuid = first_kill.get("victim_puuid")
 
-                if not kill_events:
-                    continue
+                    if killer_puuid:
+                        player_stats[killer_puuid]["fb"] += 1
+                    if victim_puuid:
+                        player_stats[victim_puuid]["fd"] += 1
 
-                # Find first kill
-                sorted_kills = sorted(
-                    kill_events, key=lambda k: k.get("kill_time_in_round", float("inf"))
+                return player_stats
+
+            except Exception as e:
+                self.bot.logger.warning(
+                    f"Error processing first blood stats: {e}"
                 )
-                first_kill = sorted_kills[0]
-
-                killer_puuid = first_kill.get("killer_puuid")
-                victim_puuid = first_kill.get("victim_puuid")
-
-                if killer_puuid:
-                    player_stats[killer_puuid]["fb"] += 1
-                if victim_puuid:
-                    player_stats[victim_puuid]["fd"] += 1
-
-            return player_stats
-
-        except Exception as e:
-            self.bot.logger.warning(
-                f"Error fetching all first blood stats for match {match_id}: {e}"
-            )
-            return {}
+                return {}
 
     async def build_scoreboard_embed(
         self, match_data: dict, requesting_player_puuid: str

@@ -94,9 +94,7 @@ class ValorantLeaderboard(commands.Cog):
         """Update MMR for all players using the data manager."""
         self.bot.logger.info("🔄 Starting MMR update cycle...")
 
-        # Get all players from database
         players = await self.bot.database.players_db.get_all_player_mmr()
-
         if not players:
             self.bot.logger.info("No players to update")
             return
@@ -106,120 +104,99 @@ class ValorantLeaderboard(commands.Cog):
         deleted_count = 0
         error_count = 0
 
-        # Filter players that need updating (haven't been updated in 2 hours)
         now = datetime.now(timezone.utc)
         players_to_update = []
 
+        # Filter players that need updating
         for player in players:
             last_updated = player.get("last_updated")
-
-            # Always update if never updated
             if last_updated is None:
                 players_to_update.append(player)
                 continue
 
             try:
-                # Parse timestamp
                 if isinstance(last_updated, str):
                     last_updated = datetime.fromisoformat(
                         last_updated.replace("Z", "+00:00")
                     )
-
-                # Make timezone-aware if naive
                 if last_updated.tzinfo is None:
                     last_updated = last_updated.replace(tzinfo=timezone.utc)
 
-                # Update if more than 2 hours old
                 if now - last_updated >= timedelta(hours=2):
                     players_to_update.append(player)
                 else:
                     skipped_count += 1
-
             except Exception as e:
                 self.bot.logger.warning(
                     f"⚠️ Error parsing timestamp for {player['name']}#{player['tag']}: {e}"
                 )
-                # Update anyway if there's an error
                 players_to_update.append(player)
 
         self.bot.logger.info(
-            f"📊 Players to update: {len(players_to_update)}, Skipped (recently updated): {skipped_count}"
+            f"📊 Players to update: {len(players_to_update)}, Skipped: {skipped_count}"
         )
 
-        # Process players in batches using data manager
+        # Batch update database records
         batch_size = 5
         for i in range(0, len(players_to_update), batch_size):
             batch = players_to_update[i : i + batch_size]
-
             self.bot.logger.info(
                 f"Processing batch {i // batch_size + 1}/{(len(players_to_update) + batch_size - 1) // batch_size}"
             )
 
-            # Use data manager's batch function
             player_tuples = [(p["name"], p["tag"]) for p in batch]
             results = await self.data_manager.batch_get_player_mmr(player_tuples)
 
-            # Process results
+            # Collect updates to batch insert
+            updates = []
+            deletions = []
+
             for player in batch:
                 name, tag = player["name"], player["tag"]
                 mmr_data = results.get((name, tag))
 
-                # Handle player not found (404)
                 if mmr_data is None:
-                    # Check if this was a PlayerNotFoundError
                     try:
-                        # Try one more time to confirm
                         await self.data_manager.get_player_mmr(name, tag)
                     except PlayerNotFoundError:
                         self.bot.logger.info(f"🗑️ Deleting {name}#{tag} (not found)")
-                        try:
-                            await self.bot.database.players_db.delete_player(name, tag)
-                            self.bot.valorant_players.pop((name, tag), None)
-                            deleted_count += 1
-                        except Exception as e:
-                            self.bot.logger.error(f"Failed to delete {name}#{tag}: {e}")
+                        deletions.append((name, tag))
                         continue
                     except Exception:
-                        # Other error, skip for now
                         error_count += 1
                         continue
 
-                # Parse MMR data
                 try:
                     parsed = self.data_manager.parse_mmr_data(mmr_data)
-                    rank = parsed["rank"]
-                    elo = parsed["elo"]
-
-                    # Update in-memory cache
+                    updates.append((name, tag, parsed["rank"], parsed["elo"]))
                     self.bot.valorant_players[(name, tag)] = {
-                        "rank": rank,
-                        "elo": elo,
+                        "rank": parsed["rank"],
+                        "elo": parsed["elo"],
                     }
-
-                    # Save to database
-                    await self.bot.database.players_db.save_player(
-                        name=name,
-                        tag=tag,
-                        rank=rank,
-                        elo=elo,
-                    )
-
                     updated_count += 1
                 except Exception as e:
                     self.bot.logger.error(f"❌ Error processing {name}#{tag}: {e}")
                     error_count += 1
 
-            # Wait between batches (data manager handles rate limiting, but this is extra safety)
+            # Batch insert/update all records at once
+            if updates:
+                await self.bot.database.players_db.batch_save_players(updates)
+
+            # Batch delete all players at once
+            if deletions:
+                await self.bot.database.players_db.batch_delete_players(deletions)
+                deleted_count += len(deletions)
+                for name, tag in deletions:
+                    self.bot.valorant_players.pop((name, tag), None)
+
             if i + batch_size < len(players_to_update):
                 await asyncio.sleep(60)
 
-        # Log summary
         self.bot.logger.info(
             f"✅ MMR Update Complete - Updated: {updated_count}, "
             f"Skipped: {skipped_count}, Deleted: {deleted_count}, Errors: {error_count}"
         )
 
-        # Log cache statistics
         stats = self.data_manager.get_cache_stats()
         self.bot.logger.info(
             f"📊 Cache Stats - Hit Rate: {stats['cache_hit_rate']:.1f}%, "

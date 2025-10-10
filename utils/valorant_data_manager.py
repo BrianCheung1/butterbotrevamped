@@ -318,43 +318,6 @@ class ValorantDataManager:
 
         return await self._fetch_api(url, cache_key, "stored_matches", force_refresh)
 
-    async def get_comprehensive_player_data(
-        self, name: str, tag: str, region: str = "na", force_refresh: bool = False
-    ) -> Dict:
-        """
-        Get all available data for a player in one call.
-
-        Args:
-            name: Player name
-            tag: Player tag
-            region: Region
-            force_refresh: Force bypass cache
-
-        Returns:
-            Dict with keys: mmr, mmr_history, stored_mmr, match_history
-        """
-        name, tag = name.lower(), tag.lower()
-
-        # Fetch all data concurrently
-        tasks = {
-            "mmr": self.get_player_mmr(name, tag, region, force_refresh),
-            "mmr_history": self.get_mmr_history(name, tag, region, force_refresh),
-            "stored_mmr": self.get_stored_mmr_history(name, tag, region, force_refresh),
-            "match_history": self.get_match_history(name, tag, region, force_refresh),
-        }
-
-        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-
-        # Build response, handling errors gracefully
-        data = {}
-        for key, result in zip(tasks.keys(), results):
-            if isinstance(result, Exception):
-                logger.warning(f"Error fetching {key} for {name}#{tag}: {result}")
-                data[key] = None
-            else:
-                data[key] = result
-
-        return data
 
     async def batch_get_player_mmr(
         self,

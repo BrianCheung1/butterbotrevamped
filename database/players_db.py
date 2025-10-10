@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import aiosqlite
 from logger import setup_logger
 from utils.database_errors import db_error_handler
+
 
 logger = setup_logger("PlayersDatabaseManager")
 
@@ -76,3 +77,49 @@ class PlayersDatabaseManager:
                 "DELETE FROM players WHERE name = ? AND tag = ?", (name, tag)
             )
             return cursor.rowcount > 0
+
+    @db_error_handler
+    async def batch_save_players(
+        self, players: List[Tuple[str, str, str, int]]
+    ) -> None:
+        """
+        Batch insert/update multiple players efficiently.
+
+        Args:
+            players: List of (name, tag, rank, elo) tuples
+        """
+        if not players:
+            return
+
+        async with self.db_manager.transaction():
+            for name, tag, rank, elo in players:
+                name, tag = name.lower(), tag.lower()
+                await self.connection.execute(
+                    """
+                    INSERT INTO players (name, tag, rank, elo, last_updated)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(name, tag) DO UPDATE SET
+                        rank = excluded.rank,
+                        elo = excluded.elo,
+                        last_updated = CURRENT_TIMESTAMP
+                    """,
+                    (name, tag, rank, elo),
+                )
+
+    @db_error_handler
+    async def batch_delete_players(self, players: List[Tuple[str, str]]) -> None:
+        """
+        Batch delete multiple players efficiently.
+
+        Args:
+            players: List of (name, tag) tuples
+        """
+        if not players:
+            return
+
+        async with self.db_manager.transaction():
+            for name, tag in players:
+                name, tag = name.lower(), tag.lower()
+                await self.connection.execute(
+                    "DELETE FROM players WHERE name = ? AND tag = ?", (name, tag)
+                )
