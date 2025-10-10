@@ -119,16 +119,22 @@ class ValorantLeaderboard(commands.Cog):
                 continue
 
             try:
+                # Parse timestamp
                 if isinstance(last_updated, str):
                     last_updated = datetime.fromisoformat(
                         last_updated.replace("Z", "+00:00")
                     )
+
+                # Make timezone-aware if naive
+                if last_updated.tzinfo is None:
+                    last_updated = last_updated.replace(tzinfo=timezone.utc)
 
                 # Update if more than 2 hours old
                 if now - last_updated >= timedelta(hours=2):
                     players_to_update.append(player)
                 else:
                     skipped_count += 1
+
             except Exception as e:
                 self.bot.logger.warning(
                     f"⚠️ Error parsing timestamp for {player['name']}#{player['tag']}: {e}"

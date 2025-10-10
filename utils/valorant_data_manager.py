@@ -46,13 +46,13 @@ class ValorantDataManager:
     # API Configuration
     API_BASE = "https://api.henrikdev.xyz/valorant"
 
-    # Cache durations (in seconds)
     CACHE_DURATIONS = {
         "mmr": 300,  # 5 minutes - player MMR data
         "match_history": 300,  # 5 minutes - match history
         "stored_matches": 600,  # 10 minutes - stored match data
         "mmr_history": 300,  # 5 minutes - MMR history
         "stored_mmr": 600,  # 10 minutes - stored MMR history
+        "match_details": 3600,  # 60 minutes - detailed match data (rarely changes)
     }
 
     # Rate limiting
@@ -513,3 +513,21 @@ class ValorantDataManager:
             "errors": 0,
         }
         logger.info("Reset statistics")
+
+    async def get_match_details(
+        self, match_id: str, force_refresh: bool = False
+    ) -> Dict:
+        """
+        Get detailed information for a specific match.
+
+        Args:
+            match_id: Match ID
+            force_refresh: Force bypass cache
+
+        Returns:
+            Dict with detailed match data including rounds and kill events
+        """
+        cache_key = f"match_details_{match_id}"
+        url = f"{self.API_BASE}/v2/match/{match_id}"
+
+        return await self._fetch_api(url, cache_key, "match_details", force_refresh)

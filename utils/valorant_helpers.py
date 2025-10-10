@@ -1,9 +1,6 @@
-import asyncio
-import os
 from datetime import datetime, timezone
 from typing import Optional
 
-import aiohttp
 import discord
 from constants.valorant_config import RANK_ORDER
 from discord.app_commands import Choice
@@ -26,10 +23,12 @@ def convert_to_datetime(date_str: str) -> datetime:
 
 
 def get_rank_value(rank_name: str) -> int:
+    """Get numeric value for rank comparison."""
     return RANK_ORDER.get(rank_name.lower(), -1)
 
 
 def parse_season(season_code: str):
+    """Parse season code (e.g., 'e8a3') into (episode, act) tuple."""
     roman_map = {
         "I": 1,
         "II": 2,
@@ -58,64 +57,14 @@ def parse_season(season_code: str):
 
 
 async def load_cached_players_from_db(db):
-    """Load cached players from the database"""
+    """Load cached players from the database on bot startup."""
     mmr_data = await db.get_all_player_mmr()
     logger.info(f"Loaded {len(mmr_data)} Valorant players from DB.")
     return {(d["name"], d["tag"]): d for d in mmr_data}
 
 
-async def fetch_val_api(url: str, name: str, tag: str) -> Optional[dict]:
-    """Handles API requests to HenrikDev API asynchronously using aiohttp, with 429 rate limit handling."""
-    VAL_KEY = os.getenv("VAL_KEY")
-    if not VAL_KEY:
-        logger.error("VAL_KEY is not set in environment variables.")
-        return None
-
-    headers = {"Authorization": VAL_KEY}
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    logger.info(f"✅ Fetched data for {name}#{tag} from URL: {url}")
-                    return await response.json()
-
-                elif response.status == 429:
-                    logger.info(response.headers)
-                    retry_after = response.headers.get("Retry-After")
-                    logger.warning(
-                        f"⚠️ Rate limited when fetching {name}#{tag}. HTTP 429. "
-                        f"Retry-After: {retry_after} seconds."
-                    )
-                    if retry_after:
-                        try:
-                            wait_time = float(retry_after)
-                            logger.info(
-                                f"Waiting {wait_time} seconds before retrying..."
-                            )
-                            await asyncio.sleep(wait_time)
-                            # Optional: Retry once after waiting
-                            return await fetch_val_api(url, name, tag)
-                        except ValueError:
-                            logger.warning("Invalid Retry-After header value.")
-
-                else:
-                    logger.warning(
-                        f"❌ Failed to fetch {name}#{tag} - HTTP {response.status} - URL: {url}"
-                    )
-
-    except Exception as e:
-        logger.error(f"❌ Exception while fetching {name}#{tag} from {url}: {e}")
-
-    return None
-
-
-async def get_player_mmr(name: str, tag: str, region: str) -> Optional[dict]:
-    url = f"https://api.henrikdev.xyz/valorant/v3/mmr/{region}/pc/{name}/{tag}"
-    return await fetch_val_api(url, name, tag)
-
-
 async def name_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete for player names from cached player list."""
     bot = interaction.client
     if not hasattr(bot, "valorant_players") or not bot.valorant_players:
         return []
@@ -131,6 +80,7 @@ async def name_autocomplete(interaction: discord.Interaction, current: str):
 
 
 async def tag_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete for player tags based on selected name."""
     bot = interaction.client
     name = interaction.namespace.name  # what user selected for "name"
 
