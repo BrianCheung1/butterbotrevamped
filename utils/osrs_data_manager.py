@@ -108,22 +108,19 @@ class OSRSDataManager:
     async def get_latest_prices(
         self, item_ids: Optional[List[int]] = None, force_refresh: bool = False
     ) -> Dict:
-        """
-        Get latest prices for items.
-
-        Args:
-            item_ids: Specific item IDs to fetch (None = all items)
-            force_refresh: Force bypass cache
-
-        Returns:
-            Dict with 'data' key containing price data
-        """
         url = self.ENDPOINTS["latest"]
-        if item_ids:
-            url += f"?id={','.join(map(str, item_ids))}"
+        cache_key = "latest_all"
+        data = await self._fetch_with_cache(cache_key, "latest", url, force_refresh)
 
-        cache_key = f"latest_{','.join(map(str, item_ids)) if item_ids else 'all'}"
-        return await self._fetch_with_cache(cache_key, "latest", url, force_refresh)
+        if item_ids:
+            # Filter only the requested items from the full dataset
+            filtered = {
+                str(i): data["data"].get(str(i))
+                for i in item_ids
+                if str(i) in data["data"]
+            }
+            return {"data": filtered}
+        return data
 
     async def get_mapping(self, force_refresh: bool = False) -> List[Dict]:
         """Get item mapping data (ID to name, etc)."""

@@ -10,6 +10,7 @@ from database import DatabaseManager
 from logger import setup_logger
 from utils.valorant_helpers import load_cached_players_from_db
 from utils.osrs_data_manager import OSRSDataManager
+from utils.valorant_data_manager import ValorantDataManager
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,6 +32,7 @@ class MyBot(commands.Bot):
         self.active_blackjack_players = set()
         self.valorant_players = {}
         self.osrs_data = OSRSDataManager(self)
+        self.valorant_data = ValorantDataManager(self)
 
     async def init_db(self) -> None:
         async with aiosqlite.connect(

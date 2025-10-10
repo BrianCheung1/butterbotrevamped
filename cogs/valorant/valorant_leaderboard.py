@@ -1,59 +1,71 @@
+"""
+Updated ValorantLeaderboard cog using centralized data manager.
+Replace your existing valorant_leaderboard.py with this version.
+"""
+
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils.channels import broadcast_embed_to_guilds
-from utils.valorant_helpers import (get_player_mmr, get_rank_value,
-                                    name_autocomplete, tag_autocomplete)
+from utils.valorant_helpers import get_rank_value, name_autocomplete, tag_autocomplete
+from utils.valorant_data_manager import PlayerNotFoundError, RateLimitError
 
 
 class ValorantLeaderboard(commands.Cog):
-    """Valorant Leaderboard"""
+    """Valorant Leaderboard with centralized data management."""
 
     def __init__(self, bot):
         self.bot = bot
-        self.rate_semaphore = asyncio.Semaphore(5)
-        self.daily_leaderboard_task = self.bot.loop.create_task(
-            self.start_daily_leaderboard_loop()
-        )
-        self.periodic_mmr_update_task = self.bot.loop.create_task(
-            self.periodic_mmr_update_loop()
-        )
+        # Use centralized data manager
+        self.data_manager = bot.valorant_data
+
+        # Start background tasks
+        self.daily_leaderboard_task.start()
+        self.periodic_mmr_update_task.start()
 
     def cog_unload(self):
-        if self.daily_leaderboard_task:
-            self.daily_leaderboard_task.cancel()
-        if self.periodic_mmr_update_task:
-            self.periodic_mmr_update_task.cancel()
+        """Clean up tasks on cog unload."""
+        self.daily_leaderboard_task.cancel()
+        self.periodic_mmr_update_task.cancel()
 
-    async def start_daily_leaderboard_loop(self):
+    @tasks.loop(time=time(hour=0, minute=0))  # Runs at midnight UTC
+    async def daily_leaderboard_task(self):
+        """Send daily leaderboard at midnight UTC."""
+        try:
+            await self.send_daily_leaderboards()
+            self.bot.logger.info("✅ Daily leaderboard sent successfully")
+        except Exception as e:
+            self.bot.logger.error(
+                f"❌ Error sending daily leaderboard: {e}", exc_info=True
+            )
+
+    @daily_leaderboard_task.before_loop
+    async def before_daily_leaderboard(self):
+        """Wait until bot is ready before starting the loop."""
         await self.bot.wait_until_ready()
+        self.bot.logger.info("[ValorantLeaderboard] Daily leaderboard task started")
 
-        while not self.bot.is_closed():
-            now = datetime.now(timezone.utc)
-            next_midnight = (now + timedelta(days=1)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            wait_seconds = (next_midnight - now).total_seconds()
+    @tasks.loop(hours=6)  # Runs every 6 hours
+    async def periodic_mmr_update_task(self):
+        """Update MMR for all players every 6 hours."""
+        try:
+            await self.run_mmr_update()
+            self.bot.logger.info("✅ MMR update cycle completed")
+        except Exception as e:
+            self.bot.logger.error(f"❌ Error in MMR update: {e}", exc_info=True)
 
-            self.bot.logger.info(
-                f"[Valorant Leaderboard] Sleeping {wait_seconds:.0f}s until next 12:00 AM UTC broadcast"
-            )
-
-            await asyncio.sleep(wait_seconds)
-
-            try:
-                await self.send_daily_leaderboards()
-                self.bot.logger.info("Daily leaderboard sent.")
-            except Exception as e:
-                self.bot.logger.error(f"Error sending leaderboard: {e}")
-
-            await asyncio.sleep(1)  # Avoid tight loop
+    @periodic_mmr_update_task.before_loop
+    async def before_mmr_update(self):
+        """Wait until bot is ready before starting the loop."""
+        await self.bot.wait_until_ready()
+        self.bot.logger.info("[ValorantLeaderboard] MMR update task started")
 
     async def send_daily_leaderboards(self):
+        """Generate and broadcast daily leaderboard."""
         leaderboard_data = [
             {
                 "name": n,
@@ -78,179 +90,135 @@ class ValorantLeaderboard(commands.Cog):
             self.bot, "leaderboard_announcements_channel_id", embed, view=view
         )
 
-    async def periodic_mmr_update_loop(self):
-        """Custom periodic loop waking at fixed times: 00:00, 06:00, 12:00, 18:00 UTC"""
-        await self.bot.wait_until_ready()
-        scheduled_hours = [0, 6, 12, 18]  # UTC hours to run at
-
-        while not self.bot.is_closed():
-            now = datetime.utcnow()
-            # Find the next scheduled hour after 'now'
-            next_run_hour = None
-            for h in scheduled_hours:
-                if h > now.hour or (
-                    h == now.hour and now.minute == 0 and now.second == 0
-                ):
-                    next_run_hour = h
-                    break
-            if next_run_hour is None:
-                # Next run is tomorrow's first scheduled hour
-                next_run_hour = scheduled_hours[0]
-                next_run_day = now.date() + timedelta(days=1)
-            else:
-                next_run_day = now.date()
-
-            next_run = datetime(
-                year=next_run_day.year,
-                month=next_run_day.month,
-                day=next_run_day.day,
-                hour=next_run_hour,
-                minute=0,
-                second=0,
-                microsecond=0,
-            )
-
-            wait_seconds = (next_run - now).total_seconds()
-            if wait_seconds <= 0:
-                # Safety fallback to avoid negative or zero sleep
-                wait_seconds = 1
-
-            self.bot.logger.info(
-                f"[Valorant MMR Update] Sleeping {wait_seconds:.0f}s until next run at {next_run} UTC"
-            )
-            await asyncio.sleep(wait_seconds)
-
-            try:
-                await self.run_mmr_update()
-            except Exception as e:
-                self.bot.logger.error(f"Error during periodic MMR update: {e}")
-
     async def run_mmr_update(self):
-        """The main MMR update logic, refactored from your original periodic_mmr_update_loop"""
+        """Update MMR for all players using the data manager."""
+        self.bot.logger.info("🔄 Starting MMR update cycle...")
 
-        self.bot.logger.info("Starting MMR update cycle...")
-
+        # Get all players from database
         players = await self.bot.database.players_db.get_all_player_mmr()
 
-        updated_players = 0
-        skipped_players = 0
-        processed_details = []
-        skipped_details = []
+        if not players:
+            self.bot.logger.info("No players to update")
+            return
 
-        for i in range(0, len(players), 5):
-            batch = players[i : i + 5]
-            self.bot.logger.info(
-                f"Processing players {i + 1}-{min(i + len(batch), len(players))} out of {len(players)}"
-            )
+        updated_count = 0
+        skipped_count = 0
+        deleted_count = 0
+        error_count = 0
 
-            eligible_batch = []
-            for player in batch:
-                last_updated = player.get("last_updated")
+        # Filter players that need updating (haven't been updated in 2 hours)
+        now = datetime.now(timezone.utc)
+        players_to_update = []
 
-                if last_updated is None:
-                    eligible_batch.append(player)
-                    continue
+        for player in players:
+            last_updated = player.get("last_updated")
 
-                try:
-                    if isinstance(last_updated, str):
-                        last_updated = datetime.fromisoformat(last_updated)
-
-                    if datetime.utcnow() - last_updated >= timedelta(minutes=120):
-                        eligible_batch.append(player)
-                        processed_details.append(
-                            f"{player['name']}#{player['tag']} (Last updated: {last_updated})"
-                        )
-                    else:
-                        skipped_players += 1
-                        skipped_details.append(
-                            f"{player['name']}#{player['tag']} (Last updated: {last_updated})"
-                        )
-                except Exception as e:
-                    self.bot.logger.warning(
-                        f"Error parsing timestamp for {player['name']}#{player['tag']}: {e}"
-                    )
-                    skipped_players += 1
-                    skipped_details.append(
-                        f"{player['name']}#{player['tag']} (Error parsing timestamp)"
-                    )
-
-            if not eligible_batch:
+            # Always update if never updated
+            if last_updated is None:
+                players_to_update.append(player)
                 continue
 
-            fetch_tasks = [
-                self.fetch_player_mmr(player["name"], player["tag"])
-                for player in eligible_batch
-            ]
-            results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
-
-            for player, result in zip(eligible_batch, results):
-                name, tag = player["name"], player["tag"]
-
-                if result == "not_found":
-                    self.bot.logger.info(
-                        f"Deleting {name}#{tag} from DB (404 not found)."
+            try:
+                if isinstance(last_updated, str):
+                    last_updated = datetime.fromisoformat(
+                        last_updated.replace("Z", "+00:00")
                     )
-                    try:
-                        await self.bot.database.players_db.delete_player(name, tag)
-                    except Exception as e:
-                        self.bot.logger.error(
-                            f"Failed to delete {name}#{tag} from DB: {e}"
-                        )
-                    continue
 
-                if isinstance(result, Exception):
-                    self.bot.logger.warning(
-                        f"Error fetching MMR for {name}#{tag}: {result}"
-                    )
-                    continue
-
-                if result and "rank" in result and "elo" in result:
-                    self.bot.valorant_players[(name, tag)] = result
-                    try:
-                        await self.bot.database.players_db.save_player(
-                            name=name,
-                            tag=tag,
-                            rank=result["rank"],
-                            elo=result["elo"],
-                        )
-                        updated_players += 1
-                    except Exception as e:
-                        self.bot.logger.error(
-                            f"Failed to update DB for {name}#{tag}: {e}"
-                        )
-
-            if eligible_batch:
-                # Respect rate limit, sleep 60 seconds after each batch
-                await asyncio.sleep(60)
+                # Update if more than 2 hours old
+                if now - last_updated >= timedelta(hours=2):
+                    players_to_update.append(player)
+                else:
+                    skipped_count += 1
+            except Exception as e:
+                self.bot.logger.warning(
+                    f"⚠️ Error parsing timestamp for {player['name']}#{player['tag']}: {e}"
+                )
+                # Update anyway if there's an error
+                players_to_update.append(player)
 
         self.bot.logger.info(
-            f"Finished MMR update cycle. Updated: {updated_players}, Skipped: {skipped_players}"
+            f"📊 Players to update: {len(players_to_update)}, Skipped (recently updated): {skipped_count}"
         )
-        if updated_players > 0:
-            self.bot.logger.info(f"Updated players: {', '.join(processed_details)}")
-        if skipped_players > 0:
-            self.bot.logger.info(f"Skipped players: {', '.join(skipped_details)}")
 
-    async def fetch_player_mmr(self, name: str, tag: str, region: str = "na"):
-        async with self.rate_semaphore:
-            data = await get_player_mmr(name.lower(), tag.lower(), region)
+        # Process players in batches using data manager
+        batch_size = 5
+        for i in range(0, len(players_to_update), batch_size):
+            batch = players_to_update[i : i + batch_size]
 
-            if not data or (isinstance(data, dict) and data.get("status") == 404):
-                return "not_found"
+            self.bot.logger.info(
+                f"Processing batch {i // batch_size + 1}/{(len(players_to_update) + batch_size - 1) // batch_size}"
+            )
 
-            if "data" in data:
-                current = data["data"].get("current", {})
-                games_needed = current.get("games_needed_for_rating", 0)
+            # Use data manager's batch function
+            player_tuples = [(p["name"], p["tag"]) for p in batch]
+            results = await self.data_manager.batch_get_player_mmr(player_tuples)
 
-                if games_needed > 0:
-                    rank, elo = "Unrated", 0
-                else:
-                    rank = current.get("tier", {}).get("name", "Unknown")
-                    elo = current.get("rr", 0)
+            # Process results
+            for player in batch:
+                name, tag = player["name"], player["tag"]
+                mmr_data = results.get((name, tag))
 
-                return {"name": name, "tag": tag, "rank": rank, "elo": elo}
+                # Handle player not found (404)
+                if mmr_data is None:
+                    # Check if this was a PlayerNotFoundError
+                    try:
+                        # Try one more time to confirm
+                        await self.data_manager.get_player_mmr(name, tag)
+                    except PlayerNotFoundError:
+                        self.bot.logger.info(f"🗑️ Deleting {name}#{tag} (not found)")
+                        try:
+                            await self.bot.database.players_db.delete_player(name, tag)
+                            self.bot.valorant_players.pop((name, tag), None)
+                            deleted_count += 1
+                        except Exception as e:
+                            self.bot.logger.error(f"Failed to delete {name}#{tag}: {e}")
+                        continue
+                    except Exception:
+                        # Other error, skip for now
+                        error_count += 1
+                        continue
 
-        return None
+                # Parse MMR data
+                try:
+                    parsed = self.data_manager.parse_mmr_data(mmr_data)
+                    rank = parsed["rank"]
+                    elo = parsed["elo"]
+
+                    # Update in-memory cache
+                    self.bot.valorant_players[(name, tag)] = {
+                        "rank": rank,
+                        "elo": elo,
+                    }
+
+                    # Save to database
+                    await self.bot.database.players_db.save_player(
+                        name=name,
+                        tag=tag,
+                        rank=rank,
+                        elo=elo,
+                    )
+
+                    updated_count += 1
+                except Exception as e:
+                    self.bot.logger.error(f"❌ Error processing {name}#{tag}: {e}")
+                    error_count += 1
+
+            # Wait between batches (data manager handles rate limiting, but this is extra safety)
+            if i + batch_size < len(players_to_update):
+                await asyncio.sleep(60)
+
+        # Log summary
+        self.bot.logger.info(
+            f"✅ MMR Update Complete - Updated: {updated_count}, "
+            f"Skipped: {skipped_count}, Deleted: {deleted_count}, Errors: {error_count}"
+        )
+
+        # Log cache statistics
+        stats = self.data_manager.get_cache_stats()
+        self.bot.logger.info(
+            f"📊 Cache Stats - Hit Rate: {stats['cache_hit_rate']:.1f}%, "
+            f"API Calls: {stats['api_calls']}, Cached: {stats['total_cached']}"
+        )
 
     @app_commands.command(
         name="valorant-leaderboard", description="View the Valorant leaderboard."
@@ -282,6 +250,7 @@ class ValorantLeaderboard(commands.Cog):
             key=lambda x: (get_rank_value(x["rank"]), x["elo"]), reverse=True
         )
 
+        # If specific player requested
         if name and tag:
             name, tag = name.lower(), tag.lower()
             for index, player in enumerate(leaderboard_data):
@@ -298,12 +267,79 @@ class ValorantLeaderboard(commands.Cog):
                     return await interaction.followup.send(embed=embed)
 
             return await interaction.followup.send(
-                f"{name}#{tag} was not found in the leaderboard cache."
+                f"❌ {name}#{tag} was not found in the leaderboard cache."
             )
 
+        # Show full leaderboard
         view = ValorantLeaderboardView(leaderboard_data, interaction)
         embed = view.generate_embed()
         await interaction.followup.send(embed=embed, view=view)
+
+    @app_commands.command(
+        name="valorant-refresh", description="Force refresh a player's MMR data"
+    )
+    @app_commands.describe(name="Player's username", tag="Player's tag")
+    @app_commands.autocomplete(name=name_autocomplete, tag=tag_autocomplete)
+    async def valorant_refresh(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        tag: str,
+    ):
+        """Force refresh a specific player's MMR."""
+        await interaction.response.defer()
+
+        name, tag = name.lower(), tag.lower()
+
+        try:
+            # Force refresh through data manager
+            mmr_data = await self.data_manager.get_player_mmr(
+                name, tag, force_refresh=True
+            )
+
+            # Parse and update
+            parsed = self.data_manager.parse_mmr_data(mmr_data)
+
+            # Update cache
+            self.bot.valorant_players[(name, tag)] = {
+                "rank": parsed["rank"],
+                "elo": parsed["elo"],
+            }
+
+            # Save to database
+            await self.bot.database.players_db.save_player(
+                name=name,
+                tag=tag,
+                rank=parsed["rank"],
+                elo=parsed["elo"],
+            )
+
+            embed = discord.Embed(
+                title=f"✅ Refreshed {name}#{tag}",
+                description=(
+                    f"**Rank:** {parsed['rank']}\n"
+                    f"**RR:** {parsed['elo']}\n"
+                    f"{'**Placement Games Needed:** ' + str(parsed['games_needed']) if parsed['games_needed'] > 0 else ''}"
+                ),
+                color=discord.Color.green(),
+            )
+            await interaction.followup.send(embed=embed)
+
+        except PlayerNotFoundError:
+            await interaction.followup.send(
+                f"❌ Player {name}#{tag} not found. They may not exist or haven't played ranked.",
+                ephemeral=True,
+            )
+        except RateLimitError as e:
+            await interaction.followup.send(
+                f"⏰ Rate limited. Please try again in {e.retry_after:.0f} seconds.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            self.bot.logger.error(f"Error refreshing {name}#{tag}: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"❌ Error refreshing player data: {str(e)}", ephemeral=True
+            )
 
 
 class ValorantLeaderboardView(discord.ui.View):
@@ -344,17 +380,37 @@ class ValorantLeaderboardView(discord.ui.View):
         leaderboard_slice = self.data[start:end]
 
         leaderboard_str = "\n".join(
-            f"{i}. {p['name']}#{p['tag']} - {p['rank']} - {p['elo']} Elo"
+            f"{i}. **{p['name']}#{p['tag']}** - {p['rank']} - {p['elo']} RR"
             for i, p in enumerate(leaderboard_slice, start=start + 1)
         )
 
-        return discord.Embed(
-            title=f"Valorant Leaderboard (Page {self.page + 1}/{self.max_page + 1})",
+        embed = discord.Embed(
+            title=f"🏆 Valorant Leaderboard (Page {self.page + 1}/{self.max_page + 1})",
             description=leaderboard_str or "No data available.",
             color=discord.Color.red(),
         )
 
-    @discord.ui.button(label="⬅ Previous", style=discord.ButtonStyle.gray)
+        embed.set_footer(text=f"Total Players: {len(self.data)}")
+
+        return embed
+
+    @discord.ui.button(label="⏮️ First", style=discord.ButtonStyle.gray)
+    async def first_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if not await self.interaction_check(interaction):
+            return await interaction.response.send_message(
+                "You're not allowed to use this leaderboard.", ephemeral=True
+            )
+
+        self.page = 0
+        self.prev_button.disabled = True
+        self.first_button.disabled = True
+        self.next_button.disabled = False
+        self.last_button.disabled = False
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.blurple)
     async def prev_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
@@ -365,10 +421,13 @@ class ValorantLeaderboardView(discord.ui.View):
 
         self.page = max(self.page - 1, 0)
         self.next_button.disabled = False
-        self.prev_button.disabled = self.page == 0
+        self.last_button.disabled = False
+        if self.page == 0:
+            self.prev_button.disabled = True
+            self.first_button.disabled = True
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
-    @discord.ui.button(label="➡ Next", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="➡️ Next", style=discord.ButtonStyle.blurple)
     async def next_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
@@ -379,7 +438,26 @@ class ValorantLeaderboardView(discord.ui.View):
 
         self.page = min(self.page + 1, self.max_page)
         self.prev_button.disabled = False
-        self.next_button.disabled = self.page == self.max_page
+        self.first_button.disabled = False
+        if self.page == self.max_page:
+            self.next_button.disabled = True
+            self.last_button.disabled = True
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    @discord.ui.button(label="⏭️ Last", style=discord.ButtonStyle.gray)
+    async def last_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if not await self.interaction_check(interaction):
+            return await interaction.response.send_message(
+                "You're not allowed to use this leaderboard.", ephemeral=True
+            )
+
+        self.page = self.max_page
+        self.prev_button.disabled = False
+        self.first_button.disabled = False
+        self.next_button.disabled = True
+        self.last_button.disabled = True
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
 

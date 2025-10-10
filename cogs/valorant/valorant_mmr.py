@@ -5,9 +5,16 @@ from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.valorant_helpers import (convert_to_datetime, fetch_val_api,
-                                    get_player_mmr, name_autocomplete,
-                                    tag_autocomplete)
+from utils.valorant_helpers import (
+    convert_to_datetime,
+    name_autocomplete,
+    tag_autocomplete,
+)
+from utils.valorant_data_manager import (
+    PlayerNotFoundError,
+    RateLimitError,
+    APIUnavailableError,
+)
 
 
 class ValorantMMRHistory(commands.Cog):
@@ -15,88 +22,18 @@ class ValorantMMRHistory(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-
-    async def get_full_mmr_history(
-        self, name: str, tag: str, region: str
-    ) -> Optional[dict]:
-        url = f"https://api.henrikdev.xyz/valorant/v2/stored-mmr-history/{region}/pc/{name}/{tag}"
-        return await fetch_val_api(url, name, tag)
-
-    async def get_recent_mmr_history(
-        self, name: str, tag: str, region: str
-    ) -> Optional[dict]:
-        url = f"https://api.henrikdev.xyz/valorant/v2/mmr-history/{region}/pc/{name}/{tag}"
-        return await fetch_val_api(url, name, tag)
-
-    async def get_player_mmr(self, name: str, tag: str, region: str) -> Optional[dict]:
-        url = f"https://api.henrikdev.xyz/valorant/v3/mmr/{region}/pc/{name}/{tag}"
-        return await fetch_val_api(url, name, tag)
-
-    def _get_cached_player_data(self, cache_key, now):
-        cached = self.bot.valorant_players.get(cache_key)
-        if cached and (
-            now - cached.get("timestamp", now - timedelta(minutes=10))
-        ) < timedelta(minutes=5):
-            self.bot.logger.info(f"Using cached data for {cache_key[0]}#{cache_key[1]}")
-            return cached["mmr_data"], cached["history"]
-        return None
-
-    async def _fetch_and_cache_player_data(
-        self, interaction, name, tag, region, cache_key, now
-    ):
-        self.bot.logger.info(f"Fetching fresh data for {name}#{tag}")
-        recent_history_data, full_history_data, mmr_data = await asyncio.gather(
-            self.get_recent_mmr_history(name, tag, region),
-            self.get_full_mmr_history(name, tag, region),
-            get_player_mmr(name, tag, region),
-        )
-
-        if (
-            not all([recent_history_data, full_history_data, mmr_data])
-            or "data" not in recent_history_data
-            or "data" not in full_history_data
-            or "data" not in mmr_data
-        ):
-            await interaction.followup.send(f"Error fetching data for {name}#{tag}.")
-            return None, None
-
-        combined_history = self._combine_and_deduplicate_history(
-            recent_history_data, full_history_data
-        )
-
-        if not combined_history:
-            await interaction.followup.send(f"No match history found for {name}#{tag}.")
-            return None, None
-
-        current = mmr_data["data"].get("current", {})
-        games_needed = current.get("games_needed_for_rating", 0)
-        rank = (
-            "Unrated"
-            if games_needed > 0
-            else current.get("tier", {}).get("name", "Unknown")
-        )
-        elo = 0 if games_needed > 0 else current.get("rr", 0)
-
-        self.bot.valorant_players[cache_key] = {
-            "rank": rank,
-            "elo": elo,
-            "mmr_data": mmr_data,
-            "history": combined_history,
-            "timestamp": now,
-        }
-
-        await self.bot.database.players_db.save_player(
-            name=name, tag=tag, rank=rank, elo=elo
-        )
-
-        return mmr_data, combined_history
+        # Use centralized data manager
+        self.data_manager = bot.valorant_data
 
     def _combine_and_deduplicate_history(self, recent_data, full_data):
+        """Combine and deduplicate match history from two sources."""
         seen_match_ids = set()
         combined = []
 
-        recent_matches = recent_data["data"].get("history", [])
-        full_matches = full_data["data"]
+        recent_matches = (
+            recent_data.get("data", {}).get("history", []) if recent_data else []
+        )
+        full_matches = full_data.get("data", []) if full_data else []
 
         for match in recent_matches + full_matches:
             match_id = match.get("match_id")
@@ -108,6 +45,7 @@ class ValorantMMRHistory(commands.Cog):
         return combined
 
     def _filter_matches_by_time_window(self, history, now, hours):
+        """Filter matches within a time window."""
         time_limit = now - timedelta(hours=hours)
         matches = [m for m in history if convert_to_datetime(m["date"]) >= time_limit]
         before = next(
@@ -116,6 +54,7 @@ class ValorantMMRHistory(commands.Cog):
         return matches, before
 
     def _calculate_mmr_stats(self, matches, before_window):
+        """Calculate MMR statistics from match history."""
         starting_elo = before_window["elo"] if before_window else matches[-1]["elo"]
         starting_rank = before_window["tier"]["name"] if before_window else "Unknown"
         ending_elo = matches[0]["elo"]
@@ -145,6 +84,7 @@ class ValorantMMRHistory(commands.Cog):
         }
 
     def _format_match_history_entries(self, matches):
+        """Format match history entries for display."""
         rows = []
         for match in matches:
             change = match.get("last_change", 0)
@@ -159,6 +99,7 @@ class ValorantMMRHistory(commands.Cog):
         return grouped_rows
 
     def _parse_player_rank(self, current_data):
+        """Parse player rank from MMR data."""
         games_needed = current_data.get("games_needed_for_rating", 0)
         if games_needed > 0:
             return "Unrated", 0, games_needed
@@ -167,7 +108,8 @@ class ValorantMMRHistory(commands.Cog):
         return rank, rr, 0
 
     def _build_empty_history_embed(self, name, tag, mmr_data):
-        current = mmr_data["data"].get("current", {})
+        """Build embed when no matches found."""
+        current = mmr_data.get("data", {}).get("current", {})
         current_rank, current_rr, games_needed = self._parse_player_rank(current)
 
         embed = discord.Embed(
@@ -190,10 +132,11 @@ class ValorantMMRHistory(commands.Cog):
     def _build_paginated_embeds(
         self, name, tag, mmr_data, stats, match_display_rows, time
     ):
+        """Build paginated embeds for match history."""
         MAX_CHARS = 1024
         pages = []
 
-        current = mmr_data["data"].get("current", {})
+        current = mmr_data.get("data", {}).get("current", {})
         current_rank, current_rr, games_needed = self._parse_player_rank(current)
         shields = current.get("rank_protection_shields", 0)
 
@@ -323,40 +266,94 @@ class ValorantMMRHistory(commands.Cog):
         await interaction.response.defer()
 
         name, tag, region = name.lower(), tag.lower(), region.lower()
-        cache_key = (name, tag)
         now = datetime.now(timezone.utc)
 
-        cached_result = self._get_cached_player_data(cache_key, now)
-        if cached_result:
-            mmr_data, combined_history = cached_result
-        else:
-            mmr_data, combined_history = await self._fetch_and_cache_player_data(
-                interaction, name, tag, region, cache_key, now
+        try:
+            # Fetch all data using data manager (with caching)
+            mmr_data, mmr_history, stored_mmr = await asyncio.gather(
+                self.data_manager.get_player_mmr(name, tag, region),
+                self.data_manager.get_mmr_history(name, tag, region),
+                self.data_manager.get_stored_mmr_history(name, tag, region),
             )
-            if not mmr_data:
-                return  # Error already sent to user
 
-        matches_in_window, match_before_window = self._filter_matches_by_time_window(
-            combined_history, now, time
-        )
+            # Validate data
+            if not mmr_data or "data" not in mmr_data:
+                return await interaction.followup.send(
+                    f"❌ Could not fetch MMR data for {name}#{tag}", ephemeral=True
+                )
 
-        if not matches_in_window:
-            embed = self._build_empty_history_embed(name, tag, mmr_data)
-            await interaction.followup.send(embed=embed)
-            return
+            # Parse data
+            parsed = self.data_manager.parse_mmr_data(mmr_data)
 
-        stats = self._calculate_mmr_stats(matches_in_window, match_before_window)
-        match_display_rows = self._format_match_history_entries(matches_in_window)
-        pages = self._build_paginated_embeds(
-            name, tag, mmr_data, stats, match_display_rows, time
-        )
+            # Save to database
+            await self.bot.database.players_db.save_player(
+                name=name,
+                tag=tag,
+                rank=parsed["rank"],
+                elo=parsed["elo"],
+            )
 
-        view = PaginatedMMRView(pages, user_id=interaction.user.id)
-        await interaction.followup.send(embed=pages[0], view=view)
+            # Update in-memory cache
+            self.bot.valorant_players[(name, tag)] = {
+                "rank": parsed["rank"],
+                "elo": parsed["elo"],
+            }
+
+            # Combine and deduplicate history
+            combined_history = self._combine_and_deduplicate_history(
+                mmr_history, stored_mmr
+            )
+
+            if not combined_history:
+                embed = self._build_empty_history_embed(name, tag, mmr_data)
+                return await interaction.followup.send(embed=embed)
+
+            # Filter matches by time window
+            matches_in_window, match_before_window = (
+                self._filter_matches_by_time_window(combined_history, now, time)
+            )
+
+            if not matches_in_window:
+                embed = self._build_empty_history_embed(name, tag, mmr_data)
+                return await interaction.followup.send(embed=embed)
+
+            # Calculate stats and format display
+            stats = self._calculate_mmr_stats(matches_in_window, match_before_window)
+            match_display_rows = self._format_match_history_entries(matches_in_window)
+            pages = self._build_paginated_embeds(
+                name, tag, mmr_data, stats, match_display_rows, time
+            )
+
+            # Send with pagination
+            view = PaginatedMMRView(pages, user_id=interaction.user.id)
+            await interaction.followup.send(embed=pages[0], view=view)
+
+        except PlayerNotFoundError:
+            await interaction.followup.send(
+                f"❌ Player {name}#{tag} not found. They may not exist or haven't played ranked.",
+                ephemeral=True,
+            )
+        except RateLimitError as e:
+            await interaction.followup.send(
+                f"⏰ Rate limited. Please try again in {e.retry_after:.0f} seconds.",
+                ephemeral=True,
+            )
+        except APIUnavailableError:
+            await interaction.followup.send(
+                "⚠️ Valorant API is currently unavailable. Please try again later.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            self.bot.logger.error(
+                f"Error fetching MMR history for {name}#{tag}: {e}", exc_info=True
+            )
+            await interaction.followup.send(
+                f"❌ An unexpected error occurred while fetching data.", ephemeral=True
+            )
 
 
 class PaginatedMMRView(discord.ui.View):
-    def __init__(self, pages: list[discord.Embed], user_id: int, timeout=120):
+    def __init__(self, pages: list[discord.Embed], user_id: int, timeout=180):
         super().__init__(timeout=timeout)
         self.pages = pages
         self.current_page = 0
@@ -366,10 +363,11 @@ class PaginatedMMRView(discord.ui.View):
         self.update_buttons()
 
     def update_buttons(self):
+        """Update button states based on current page."""
         self.go_previous.disabled = self.current_page == 0
         self.go_next.disabled = self.current_page == len(self.pages) - 1
 
-    @discord.ui.button(label="⬅ Previous", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.gray)
     async def go_previous(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
@@ -384,7 +382,7 @@ class PaginatedMMRView(discord.ui.View):
             embed=self.pages[self.current_page], view=self
         )
 
-    @discord.ui.button(label="➡ Next", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="➡️ Next", style=discord.ButtonStyle.gray)
     async def go_next(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):

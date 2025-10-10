@@ -317,6 +317,7 @@ class DecantChecker(commands.Cog):
             return 0
 
         for potion_name, potion_data in POTIONS.items():
+
             # Skip potions with low GE limits
             if potion_data["limit"] < MIN_GE_LIMIT:
                 continue
@@ -325,6 +326,7 @@ class DecantChecker(commands.Cog):
 
             # Check if both items exist in price data
             if dose3_id not in latest or dose4_id not in latest:
+                print("Missing price data for potion IDs:", dose3_id, dose4_id)
                 continue
 
             price3, price4 = latest[dose3_id], latest[dose4_id]
