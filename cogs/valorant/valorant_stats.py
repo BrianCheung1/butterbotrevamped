@@ -293,8 +293,8 @@ class ValorantStats(commands.Cog):
         def format_player_line(player):
             """Format a single player's stats line."""
             stats = player.get("stats", {})
-            print(stats)
-            character = stats.get("character", {})
+            character = player.get("character", {})
+            rank = player.get("currenttier_patched", "Unranked")
 
             name = player.get("name", "Unknown")
             tag = player.get("tag", "")
@@ -307,7 +307,7 @@ class ValorantStats(commands.Cog):
             kills = stats.get("kills", 0)
             deaths = stats.get("deaths", 0)
             assists = stats.get("assists", 0)
-            agent = character.get("name", "?")[:3]  # Short agent name
+            agent = character
 
             # Calculate headshot %
             head = stats.get("headshots", 0)
@@ -328,7 +328,7 @@ class ValorantStats(commands.Cog):
             fb_str = f" 🩸{fb}" if fb > 0 else ""
             fd_str = f" 💀{fd}" if fd > 0 else ""
 
-            return f"{prefix}`{kills:2}/{deaths:2}/{assists:2}` **{name}#{tag}** ({agent}) HS:{hs_pct}% ACS:{acs}{fb_str}{fd_str}"
+            return f"{prefix}`{kills:2}/{deaths:2}/{assists:2}` **{name}#{tag}** ({agent}) [{rank}] HS:{hs_pct}% ACS:{acs}{fb_str}{fd_str}"
 
         # Red Team
         red_lines = [format_player_line(p) for p in red_team]
