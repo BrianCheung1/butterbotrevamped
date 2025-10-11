@@ -1,6 +1,7 @@
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Dict, List, Tuple
+import asyncio
 
 import discord
 from discord import app_commands
@@ -23,7 +24,6 @@ class ValorantStats(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        # Use centralized data manager
         self.data_manager = bot.valorant_data
 
     def filter_matches(self, matches, mode=None, season=None, since=None):
@@ -63,6 +63,62 @@ class ValorantStats(commands.Cog):
 
         return stats
 
+    async def _extract_first_blood_stats(
+        self, match_data: dict, player_puuid: Optional[str] = None
+    ) -> Tuple[Dict, int, int]:
+        """
+        Extract first blood stats for all players or specific player from match data.
+
+        Args:
+            match_data: Full match data dict from API
+            player_puuid: Optional - if provided, returns (all_player_stats, player_fb, player_fd)
+                         if None, returns (all_player_stats, 0, 0)
+
+        Returns:
+            Tuple of (all_player_fb_fd_dict, player_first_bloods, player_first_deaths)
+        """
+        if not match_data or "data" not in match_data:
+            return {}, 0, 0
+
+        try:
+            rounds = match_data["data"].get("rounds", [])
+            all_player_stats = defaultdict(lambda: {"fb": 0, "fd": 0})
+            player_fb_count = 0
+            player_fd_count = 0
+
+            for round_data in rounds:
+                kill_events = []
+                for player_stat in round_data.get("player_stats", []):
+                    kill_events.extend(player_stat.get("kill_events", []))
+
+                if not kill_events:
+                    continue
+
+                # Find first kill of round
+                sorted_kills = sorted(
+                    kill_events, key=lambda k: k.get("kill_time_in_round", float("inf"))
+                )
+                first_kill = sorted_kills[0]
+
+                killer_puuid = first_kill.get("killer_puuid")
+                victim_puuid = first_kill.get("victim_puuid")
+
+                if killer_puuid:
+                    all_player_stats[killer_puuid]["fb"] += 1
+                    if killer_puuid == player_puuid:
+                        player_fb_count += 1
+
+                if victim_puuid:
+                    all_player_stats[victim_puuid]["fd"] += 1
+                    if victim_puuid == player_puuid:
+                        player_fd_count += 1
+
+            return all_player_stats, player_fb_count, player_fd_count
+
+        except Exception as e:
+            self.bot.logger.warning(f"Error processing first blood stats: {e}")
+            return {}, 0, 0
+
     async def get_player_kill_stats(self, match_id: str, player_puuid: str):
         """
         Fetch detailed match data and calculate various kill stats for a player.
@@ -81,16 +137,7 @@ class ValorantStats(commands.Cog):
         try:
             match_data = await self.data_manager.get_match_details(match_id)
             if not match_data or "data" not in match_data:
-                return {
-                    "first_bloods": 0,
-                    "first_deaths": 0,
-                    "total_kills": 0,
-                    "total_deaths": 0,
-                    "headshot_kills": 0,
-                    "bodyshot_kills": 0,
-                    "legshot_kills": 0,
-                    "kill_details": [],
-                }
+                return self._default_kill_stats()
 
             rounds = match_data["data"].get("rounds", [])
             first_bloods = 0
@@ -103,7 +150,6 @@ class ValorantStats(commands.Cog):
             kill_details = []
 
             for round_data in rounds:
-                # Collect all kill events for this round from each player's data
                 kill_events = []
                 for player_stat in round_data.get("player_stats", []):
                     kill_events.extend(player_stat.get("kill_events", []))
@@ -111,29 +157,24 @@ class ValorantStats(commands.Cog):
                 if not kill_events:
                     continue
 
-                # Sort by time to find the earliest kill of the round
                 sorted_kills = sorted(
                     kill_events, key=lambda k: k.get("kill_time_in_round", float("inf"))
                 )
-
-                # First blood/death tracking
                 first_kill = sorted_kills[0]
+
                 if first_kill.get("killer_puuid") == player_puuid:
                     first_bloods += 1
                 if first_kill.get("victim_puuid") == player_puuid:
                     first_deaths += 1
 
-                # Process all kills in the round
                 for kill_event in kill_events:
                     killer_puuid = kill_event.get("killer_puuid")
                     victim_puuid = kill_event.get("victim_puuid")
 
-                    # Player got a kill
                     if killer_puuid == player_puuid:
                         total_kills += 1
                         kill_details.append(kill_event)
 
-                        # Track kill location (headshot/bodyshot/legshot)
                         damage_bodyshot = kill_event.get("damage_bodyshot", "")
                         if damage_bodyshot:
                             if "Head" in damage_bodyshot:
@@ -143,7 +184,6 @@ class ValorantStats(commands.Cog):
                             elif "Leg" in damage_bodyshot:
                                 legshot_kills += 1
 
-                    # Player died
                     if victim_puuid == player_puuid:
                         total_deaths += 1
 
@@ -162,63 +202,21 @@ class ValorantStats(commands.Cog):
             self.bot.logger.warning(
                 f"Error fetching kill stats for match {match_id}: {e}"
             )
-            return {
-                "first_bloods": 0,
-                "first_deaths": 0,
-                "total_kills": 0,
-                "total_deaths": 0,
-                "headshot_kills": 0,
-                "bodyshot_kills": 0,
-                "legshot_kills": 0,
-                "kill_details": [],
-            }
+            return self._default_kill_stats()
 
-    async def get_all_first_blood_stats(self, match_data: dict):
-            """
-            Get first blood/death stats for ALL players in a match from pre-fetched data.
-            
-            Args:
-                match_data: The full match data dict (from get_match_details)
-            
-            Returns: Dict[puuid, (first_bloods, first_deaths)]
-            """
-            try:
-                if not match_data or "data" not in match_data:
-                    return {}
-
-                rounds = match_data["data"].get("rounds", [])
-                player_stats = defaultdict(lambda: {"fb": 0, "fd": 0})
-
-                for round_data in rounds:
-                    # Collect all kill events for this round
-                    kill_events = []
-                    for player_stat in round_data.get("player_stats", []):
-                        kill_events.extend(player_stat.get("kill_events", []))
-
-                    if not kill_events:
-                        continue
-
-                    # Find first kill
-                    sorted_kills = sorted(
-                        kill_events, key=lambda k: k.get("kill_time_in_round", float("inf"))
-                    )
-                    first_kill = sorted_kills[0]
-
-                    killer_puuid = first_kill.get("killer_puuid")
-                    victim_puuid = first_kill.get("victim_puuid")
-
-                    if killer_puuid:
-                        player_stats[killer_puuid]["fb"] += 1
-                    if victim_puuid:
-                        player_stats[victim_puuid]["fd"] += 1
-
-                return player_stats
-
-            except Exception as e:
-                self.bot.logger.warning(
-                    f"Error processing first blood stats: {e}"
-                )
-                return {}
+    @staticmethod
+    def _default_kill_stats() -> dict:
+        """Return default kill stats structure."""
+        return {
+            "first_bloods": 0,
+            "first_deaths": 0,
+            "total_kills": 0,
+            "total_deaths": 0,
+            "headshot_kills": 0,
+            "bodyshot_kills": 0,
+            "legshot_kills": 0,
+            "kill_details": [],
+        }
 
     async def build_scoreboard_embed(
         self, match_data: dict, requesting_player_puuid: str
@@ -227,174 +225,251 @@ class ValorantStats(commands.Cog):
         Build a detailed scoreboard embed for a match.
 
         Args:
-            match_data: The full match data from stored-matches
+            match_data: The match data from stored-matches (contains meta with id)
             requesting_player_puuid: PUUID of the player who requested stats
 
         Returns:
             discord.Embed with full scoreboard
         """
+        try:
+            match_id = match_data.get("meta", {}).get("id")
+            if not match_id:
+                return self._build_error_embed("Invalid match data")
 
-        match_data = await self.data_manager.get_match_details(match_data["meta"]["id"])
-        match_data = match_data.get("data", {}) if match_data else {}
-        meta = match_data.get("metadata", {})
-        teams = match_data.get("teams", {})
+            # Fetch full match details
+            full_match_data = await self.data_manager.get_match_details(match_id)
+            if not full_match_data or "data" not in full_match_data:
+                return self._build_error_embed("Could not fetch match details")
 
-        map_name = meta.get("map", {})
-        mode = meta.get("mode", "Unknown")
-        red_score = teams.get("red", {}).get("rounds_won", 0)
-        blue_score = teams.get("blue", {}).get("rounds_won", 0)
-        started_at = meta.get("started_at", "")
+            match_info = full_match_data["data"]
+            meta = match_info.get("metadata", {})
+            teams = match_info.get("teams", {})
 
-        # Determine match result
-        if red_score > blue_score:
-            result = f"Red Victory {red_score}-{blue_score}"
-            color = discord.Color.red()
-        elif blue_score > red_score:
-            result = f"Blue Victory {blue_score}-{red_score}"
-            color = discord.Color.blue()
-        else:
-            result = f"Draw {red_score}-{blue_score}"
-            color = discord.Color.greyple()
+            map_name = meta.get("map", {})
+            mode = meta.get("mode", "Unknown")
+            red_score = teams.get("red", {}).get("rounds_won", 0)
+            blue_score = teams.get("blue", {}).get("rounds_won", 0)
+            started_at = meta.get("started_at", "")
 
-        embed = discord.Embed(
-            title=f"🎮 Match Scoreboard - {map_name}",
-            description=f"**{result}** • {mode}",
-            color=color,
-        )
+            # Determine match result and color
+            if red_score > blue_score:
+                result = f"Red Victory {red_score}-{blue_score}"
+                winner_color = discord.Color.from_rgb(220, 20, 60)  # Crimson red
+                loser_color = discord.Color.from_rgb(65, 105, 225)  # Royal blue
+            elif blue_score > red_score:
+                result = f"Blue Victory {blue_score}-{red_score}"
+                winner_color = discord.Color.from_rgb(65, 105, 225)
+                loser_color = discord.Color.from_rgb(220, 20, 60)
+            else:
+                result = f"Draw {red_score}-{blue_score}"
+                winner_color = discord.Color.from_rgb(128, 128, 128)
+                loser_color = discord.Color.from_rgb(128, 128, 128)
 
-        # Get first blood stats for all players
-        match_id = meta.get("id")
-        fb_stats = await self.get_all_first_blood_stats(match_id) if match_id else {}
+            embed = discord.Embed(
+                title=f"🎮 {map_name}",
+                description=f"**{result}** • {mode}",
+                color=winner_color,
+            )
 
-        players_data = match_data.get("players", {})
+            # Extract first blood stats for all players
+            fb_stats, _, _ = await self._extract_first_blood_stats(full_match_data)
 
-        # Handle both formats safely
-        if isinstance(players_data, dict):
-            all_players = players_data.get("all_players", [])
-        else:
-            all_players = players_data or []
+            players_data = match_info.get("players", {})
+            if isinstance(players_data, dict):
+                all_players = players_data.get("all_players", [])
+            else:
+                all_players = players_data or []
 
-        # Separate by team
-        red_team = [p for p in all_players if p.get("team", "").lower() == "red"]
-        blue_team = [p for p in all_players if p.get("team", "").lower() == "blue"]
+            # Separate and sort by team
+            red_team = sorted(
+                [p for p in all_players if p.get("team", "").lower() == "red"],
+                key=lambda p: p.get("stats", {}).get("score", 0),
+                reverse=True,
+            )
+            blue_team = sorted(
+                [p for p in all_players if p.get("team", "").lower() == "blue"],
+                key=lambda p: p.get("stats", {}).get("score", 0),
+                reverse=True,
+            )
 
-        # Sort by score (descending)
-        red_team.sort(key=lambda p: p.get("stats", {}).get("score", 0), reverse=True)
-        blue_team.sort(key=lambda p: p.get("stats", {}).get("score", 0), reverse=True)
+            def format_player_line(player):
+                """Format a single player's stats line."""
+                stats = player.get("stats", {})
+                character = player.get("character", {})
+                rank = player.get("currenttier_patched", "Unranked")
 
-        def format_player_line(player):
-            """Format a single player's stats line."""
-            stats = player.get("stats", {})
-            character = player.get("character", {})
-            rank = player.get("currenttier_patched", "Unranked")
+                name = player.get("name", "Unknown")
+                tag = player.get("tag", "")
+                puuid = stats.get("puuid", "")
 
-            name = player.get("name", "Unknown")
-            tag = player.get("tag", "")
-            puuid = stats.get("puuid", "")
+                is_me = puuid == requesting_player_puuid
+                prefix = "**➤**" if is_me else "  "
 
-            # Highlight requesting player
-            is_me = puuid == requesting_player_puuid
-            prefix = "➤ " if is_me else "  "
+                kills = stats.get("kills", 0)
+                deaths = stats.get("deaths", 0)
+                assists = stats.get("assists", 0)
+                agent = (
+                    character.get("name", "Unknown")
+                    if isinstance(character, dict)
+                    else character
+                )
 
-            kills = stats.get("kills", 0)
-            deaths = stats.get("deaths", 0)
-            assists = stats.get("assists", 0)
-            agent = character
+                # Headshot %
+                head = stats.get("headshots", 0)
+                body = stats.get("bodyshots", 0)
+                leg = stats.get("legshots", 0)
+                total_shots = head + body + leg
+                hs_pct = int((head / total_shots * 100)) if total_shots > 0 else 0
 
-            # Calculate headshot %
-            head = stats.get("headshots", 0)
-            body = stats.get("bodyshots", 0)
-            leg = stats.get("legshots", 0)
-            total_shots = head + body + leg
-            hs_pct = int((head / total_shots * 100)) if total_shots > 0 else 0
+                # ACS
+                score = stats.get("score", 0)
+                total_rounds = red_score + blue_score
+                acs = round(score / total_rounds) if total_rounds > 0 else 0
 
-            # Calculate ACS
-            score = stats.get("score", 0)
+                # First blood stats
+                fb_data = fb_stats.get(puuid, {"fb": 0, "fd": 0})
+                fb = fb_data["fb"]
+                fd = fb_data["fd"]
+                fb_str = f" 🩸{fb}" if fb > 0 else ""
+                fd_str = f" 💀{fd}" if fd > 0 else ""
+
+                return (
+                    f"{prefix} `{kills:2d}/{deaths:2d}/{assists:2d}` "
+                    f"**{name}#{tag}** | {agent} [{rank}]\n"
+                    f"         HS: {hs_pct:2d}% | ACS: {acs:3d}{fb_str}{fd_str}"
+                )
+
+            # Format red team
+            red_lines = [format_player_line(p) for p in red_team]
+            red_field_value = "\n".join(red_lines) if red_lines else "No players"
+
+            # Format blue team
+            blue_lines = [format_player_line(p) for p in blue_team]
+            blue_field_value = "\n".join(blue_lines) if blue_lines else "No players"
+
+            # Add team fields with appropriate styling
+            embed.add_field(
+                name=f"🔴 Red Team ({red_score})",
+                value=red_field_value,
+                inline=False,
+            )
+
+            embed.add_field(
+                name=f"🔵 Blue Team ({blue_score})",
+                value=blue_field_value,
+                inline=False,
+            )
+
+            # Add match stats footer
+            if started_at:
+                try:
+                    match_time = convert_to_datetime(started_at)
+                    embed.timestamp = match_time
+                except Exception:
+                    pass
+
+            # Build detailed footer with stats
             total_rounds = red_score + blue_score
-            acs = round(score / total_rounds) if total_rounds > 0 else 0
+            total_kills = sum(p.get("stats", {}).get("kills", 0) for p in all_players)
+            avg_kda = total_kills / len(all_players) if all_players else 0
 
-            # First blood stats
-            fb_data = fb_stats.get(puuid, {"fb": 0, "fd": 0})
-            fb = fb_data["fb"]
-            fd = fb_data["fd"]
-            fb_str = f" 🩸{fb}" if fb > 0 else ""
-            fd_str = f" 💀{fd}" if fd > 0 else ""
+            footer_text = f"➤ = You | 🩸 = First Bloods | 💀 = First Deaths | Total Rounds: {total_rounds} | Avg K/R: {avg_kda:.1f}"
+            embed.set_footer(text=footer_text)
 
-            return f"{prefix}`{kills:2}/{deaths:2}/{assists:2}` **{name}#{tag}** ({agent}) [{rank}] HS:{hs_pct}% ACS:{acs}{fb_str}{fd_str}"
+            return embed
 
-        # Red Team
-        red_lines = [format_player_line(p) for p in red_team]
-        embed.add_field(
-            name=f"🔴 Red Team ({red_score})",
-            value="\n".join(red_lines) or "No players",
-            inline=False,
-        )
+        except Exception as e:
+            self.bot.logger.error(f"Error building scoreboard: {e}", exc_info=True)
+            return self._build_error_embed("Failed to build scoreboard")
 
-        # Blue Team
-        blue_lines = [format_player_line(p) for p in blue_team]
-        embed.add_field(
-            name=f"🔵 Blue Team ({blue_score})",
-            value="\n".join(blue_lines) or "No players",
-            inline=False,
-        )
+    def _get_player_placement(
+        self, match_data: dict, player_puuid: str
+    ) -> Optional[int]:
+        """
+        Calculate player's placement in a match based on ACS (Combat Score).
 
-        # Footer
-        if started_at:
-            try:
-                match_time = convert_to_datetime(started_at)
-                embed.timestamp = match_time
-            except:
-                pass
+        Args:
+            match_data: Full match data
+            player_puuid: Player's PUUID
 
-        embed.set_footer(text="➤ = You | 🩸 = First Bloods | 💀 = First Deaths")
+        Returns:
+            Player's placement (1-10) or None if not found
+        """
+        try:
+            if not match_data or "data" not in match_data:
+                return None
 
-        return embed
+            match_info = match_data["data"]
+            players_data = match_info.get("players", {})
+
+            if isinstance(players_data, dict):
+                all_players = players_data.get("all_players", [])
+            else:
+                all_players = players_data or []
+
+            # Build list of (puuid, acs_score) tuples
+            player_acs_scores = []
+            for player in all_players:
+                puuid = player.get("stats", {}).get("puuid", "")
+                score = player.get("stats", {}).get("score", 0)
+                total_rounds = (
+                    sum(
+                        m.get("rounds_won", 0)
+                        for m in match_info.get("teams", {}).values()
+                        if isinstance(m, dict)
+                    )
+                    or 1
+                )
+                acs = round(score / total_rounds) if total_rounds > 0 else 0
+
+                if puuid:
+                    player_acs_scores.append((puuid, acs))
+
+            # Sort by ACS descending and find player's placement
+            sorted_players = sorted(player_acs_scores, key=lambda x: x[1], reverse=True)
+            for placement, (puuid, _) in enumerate(sorted_players, 1):
+                if puuid == player_puuid:
+                    return placement
+
+            return None
+
+        except Exception as e:
+            self.bot.logger.warning(f"Error calculating player placement: {e}")
+            return None
 
     async def build_overall_stats(self, matches, player_puuid: str):
         """Build comprehensive overall statistics from matches."""
-        total_kills = 0
-        total_deaths = 0
-        total_assists = 0
-        total_headshots = 0
-        total_body_shots = 0
-        total_leg_shots = 0
-        total_score = 0
-        total_rounds = 0
-        first_bloods = 0
-        first_deaths = 0
+        total_kills = total_deaths = total_assists = 0
+        total_headshots = total_body_shots = total_leg_shots = 0
+        total_score = total_rounds = 0
+        first_bloods = first_deaths = 0
+        wins = losses = draws = 0
+        placements = []
 
-        wins = 0
-        losses = 0
-        draws = 0
-
-        # Fetch first blood stats for recent matches (limit to last 10 to avoid rate limits)
         recent_matches = matches[:10]
         self.bot.logger.info(
             f"Fetching detailed stats for {len(recent_matches)} matches..."
         )
 
+        # Aggregate basic stats from all matches
         for match in matches:
             stats = match.get("stats", {})
             shots = stats.get("shots", {})
             teams = match.get("teams", {})
 
-            # KDA
             total_kills += stats.get("kills", 0)
             total_deaths += stats.get("deaths", 0)
             total_assists += stats.get("assists", 0)
 
-            # Shots
             total_headshots += shots.get("head", 0)
             total_body_shots += shots.get("body", 0)
             total_leg_shots += shots.get("leg", 0)
 
-            # Score
             total_score += stats.get("score", 0)
             red_score = teams.get("red", 0)
             blue_score = teams.get("blue", 0)
             total_rounds += red_score + blue_score
 
-            # Win/Loss
             player_team = stats.get("team", "").lower()
             player_score = red_score if player_team == "red" else blue_score
             opp_score = blue_score if player_team == "red" else red_score
@@ -406,13 +481,32 @@ class ValorantStats(commands.Cog):
             else:
                 draws += 1
 
-        # Fetch first blood stats for recent matches
-        for match in recent_matches:
-            match_id = match.get("meta", {}).get("id")
-            if match_id and player_puuid:
-                fb, fd = await self.get_first_blood_stats(match_id, player_puuid)
-                first_bloods += fb
-                first_deaths += fd
+        # Batch fetch detailed stats for recent matches
+        match_ids = [
+            m.get("meta", {}).get("id")
+            for m in recent_matches
+            if m.get("meta", {}).get("id") and player_puuid
+        ]
+
+        if match_ids:
+            match_details = await asyncio.gather(
+                *[self.data_manager.get_match_details(mid) for mid in match_ids],
+                return_exceptions=True,
+            )
+
+            for match_data in match_details:
+                if isinstance(match_data, Exception):
+                    continue
+                _, fb_count, fd_count = await self._extract_first_blood_stats(
+                    match_data, player_puuid
+                )
+                first_bloods += fb_count
+                first_deaths += fd_count
+
+                # Calculate placement based on ACS ranking
+                placement = self._get_player_placement(match_data, player_puuid)
+                if placement:
+                    placements.append(placement)
 
         # Calculate aggregates
         total_shots = total_headshots + total_body_shots + total_leg_shots
@@ -420,6 +514,7 @@ class ValorantStats(commands.Cog):
         kd_ratio = (total_kills / total_deaths) if total_deaths > 0 else total_kills
         avg_combat_score = (total_score / total_rounds) if total_rounds > 0 else 0
         win_rate = (wins / len(matches) * 100) if matches else 0
+        avg_placement = sum(placements) / len(placements) if placements else 0
 
         return {
             "matches": len(matches),
@@ -435,15 +530,32 @@ class ValorantStats(commands.Cog):
             "avg_combat_score": avg_combat_score,
             "first_bloods": first_bloods,
             "first_deaths": first_deaths,
-            "fb_analyzed_matches": len(recent_matches),
+            "fb_analyzed_matches": len(match_ids),
+            "avg_placement": avg_placement,
+            "placements_analyzed": len(placements),
         }
 
     async def build_kda_lines(self, matches, player_puuid: str):
         """Build KDA display lines from matches with first blood/death stats."""
         lines = []
-
-        # Only fetch detailed stats for most recent matches to avoid rate limits
         detailed_matches = matches[:8]
+
+        # Batch fetch match details
+        match_ids = [
+            m.get("meta", {}).get("id")
+            for m in detailed_matches
+            if m.get("meta", {}).get("id")
+        ]
+
+        match_details_map = {}
+        if match_ids:
+            match_details = await asyncio.gather(
+                *[self.data_manager.get_match_details(mid) for mid in match_ids],
+                return_exceptions=True,
+            )
+            for mid, detail in zip(match_ids, match_details):
+                if not isinstance(detail, Exception):
+                    match_details_map[mid] = detail
 
         for match in detailed_matches:
             meta = match.get("meta", {})
@@ -456,7 +568,11 @@ class ValorantStats(commands.Cog):
             kills = stats.get("kills", 0)
             deaths = stats.get("deaths", 0)
             assists = stats.get("assists", 0)
-            agent = character.get("name", "Unknown")
+            agent = (
+                character.get("name", "Unknown")
+                if isinstance(character, dict)
+                else character
+            )
             score = stats.get("score", 0)
 
             head, body, leg = (
@@ -476,24 +592,21 @@ class ValorantStats(commands.Cog):
             avg_score = round(score / total_rounds) if total_rounds > 0 else 0
             map_score = f"{team_score}-{opp_score}"
 
-            # Win/Loss indicator
             result_emoji = (
                 "✅"
                 if team_score > opp_score
                 else "❌" if team_score < opp_score else "➖"
             )
 
-            # Fetch first blood/death stats
+            # Get first blood stats from pre-fetched data
+            fb_indicator = fd_indicator = ""
             match_id = meta.get("id")
-            fb_indicator = ""
-            fd_indicator = ""
-
-            if match_id and player_puuid:
-                first_bloods, first_deaths = await self.get_first_blood_stats(
-                    match_id, player_puuid
+            if match_id in match_details_map:
+                _, fb_count, fd_count = await self._extract_first_blood_stats(
+                    match_details_map[match_id], player_puuid
                 )
-                fb_indicator = f" 🩸×{first_bloods}" if first_bloods > 0 else ""
-                fd_indicator = f" 💀×{first_deaths}" if first_deaths > 0 else ""
+                fb_indicator = f" 🩸×{fb_count}" if fb_count > 0 else ""
+                fd_indicator = f" 💀×{fd_count}" if fd_count > 0 else ""
 
             lines.append(
                 f"{result_emoji} **{map_name}** ({map_score}) • {agent}\n"
@@ -528,7 +641,6 @@ class ValorantStats(commands.Cog):
         time_limit = now - timedelta(hours=time)
 
         try:
-            # Use data manager to fetch match history (with caching)
             data = await self.data_manager.get_match_history(name, tag, region)
 
             if not data or data.get("status") != 200 or "data" not in data:
@@ -542,17 +654,14 @@ class ValorantStats(commands.Cog):
                     f"No matches found for {name}#{tag}.", ephemeral=True
                 )
 
-            # Get player PUUID from first match
             player_puuid = matches[0].get("stats", {}).get("puuid")
 
-            # Step 1: Filter for Competitive
             competitive_matches = self.filter_matches(matches, mode="Competitive")
             if not competitive_matches:
                 return await interaction.followup.send(
                     f"No Competitive matches found for {name}#{tag}.", ephemeral=True
                 )
 
-            # Step 2: Get latest season
             season_codes = {
                 m["meta"]["season"]["short"]
                 for m in competitive_matches
@@ -565,7 +674,6 @@ class ValorantStats(commands.Cog):
 
             latest_season = max(season_codes, key=parse_season)
 
-            # Step 3: Filter for latest season and time window
             latest_season_matches = self.filter_matches(
                 competitive_matches, season=latest_season
             )
@@ -579,7 +687,6 @@ class ValorantStats(commands.Cog):
                     ephemeral=True,
                 )
 
-            # Step 4: Build stats
             overall = await self.build_overall_stats(
                 matches_in_time_window, player_puuid
             )
@@ -589,17 +696,20 @@ class ValorantStats(commands.Cog):
             )
             kda_lines = await self.build_kda_lines(matches_in_time_window, player_puuid)
 
-            # Step 5: Build main stats embed
             embed = discord.Embed(
                 title=f"📊 {name}#{tag}",
                 description=f"**Season {latest_season}** • Last {time} hours • {overall['matches']} matches",
                 color=discord.Color.red(),
             )
 
-            # Overall Performance Section
             fb_note = (
                 f" (from {overall['fb_analyzed_matches']} matches)"
                 if overall["fb_analyzed_matches"] < overall["matches"]
+                else ""
+            )
+            placement_note = (
+                f" (from {overall['placements_analyzed']} matches)"
+                if overall["placements_analyzed"] < overall["matches"]
                 else ""
             )
             embed.add_field(
@@ -610,19 +720,17 @@ class ValorantStats(commands.Cog):
                     f"(KD: {overall['kd_ratio']:.2f})\n"
                     f"**Headshot %:** {overall['hs_percentage']:.1f}%\n"
                     f"**Avg Combat Score:** {overall['avg_combat_score']:.0f}\n"
+                    f"**Avg Placement:** #{overall['avg_placement']:.1f}{placement_note}\n"
                     f"**First Bloods:** {overall['first_bloods']} 🩸 | **First Deaths:** {overall['first_deaths']} 💀{fb_note}"
                 ),
                 inline=False,
             )
 
-            # Map Performance Section
             if map_stats:
                 map_lines = []
                 for map_name, stats in sorted(
                     map_stats.items(), key=lambda x: -x[1]["total"]
-                )[
-                    :5
-                ]:  # Top 5 maps
+                )[:5]:
                     w, l, d = stats["wins"], stats["losses"], stats["draws"]
                     total = stats["total"]
                     wr = (w / total * 100) if total > 0 else 0
@@ -634,7 +742,6 @@ class ValorantStats(commands.Cog):
                     inline=False,
                 )
 
-            # Recent Matches Section
             embed.add_field(
                 name="🔫 Recent Matches",
                 value="\n".join(kda_lines) or "No match data available.",
@@ -643,13 +750,11 @@ class ValorantStats(commands.Cog):
 
             embed.set_footer(text="🩸 = First Bloods | 💀 = First Deaths")
 
-            # Step 6: Build scoreboard for most recent match
             most_recent_match = matches_in_time_window[0]
             scoreboard_embed = await self.build_scoreboard_embed(
                 most_recent_match, player_puuid
             )
 
-            # Send both embeds
             await interaction.followup.send(embeds=[embed, scoreboard_embed])
 
         except PlayerNotFoundError:

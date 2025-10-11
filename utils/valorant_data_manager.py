@@ -318,31 +318,12 @@ class ValorantDataManager:
 
         return await self._fetch_api(url, cache_key, "stored_matches", force_refresh)
 
-
-    async def batch_get_player_mmr(
-        self,
-        players: List[Tuple[str, str]],
-        region: str = "na",
-        force_refresh: bool = False,
-    ) -> Dict[Tuple[str, str], Dict]:
-        """
-        Get MMR data for multiple players efficiently.
-
-        Args:
-            players: List of (name, tag) tuples
-            region: Region
-            force_refresh: Force bypass cache
-
-        Returns:
-            Dict mapping (name, tag) to MMR data
-        """
+    async def batch_get_player_mmr(self, players, region="na", force_refresh=False):
         results = {}
-
-        # Process in batches of 5 to respect rate limits
         batch_size = 5
+
         for i in range(0, len(players), batch_size):
             batch = players[i : i + batch_size]
-
             tasks = [
                 self.get_player_mmr(name, tag, region, force_refresh)
                 for name, tag in batch
@@ -351,15 +332,15 @@ class ValorantDataManager:
             batch_results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for (name, tag), result in zip(batch, batch_results):
-                if isinstance(result, Exception):
-                    logger.warning(f"Error fetching MMR for {name}#{tag}: {result}")
+                if isinstance(result, RateLimitError):
+                    logger.error(f"Rate limited during batch update!")
+                    # Re-raise to stop processing
+                    raise result
+                elif isinstance(result, Exception):
+                    logger.warning(f"Error: {result}")
                     results[(name, tag)] = None
                 else:
                     results[(name, tag)] = result
-
-            # Wait between batches to avoid rate limiting
-            if i + batch_size < len(players):
-                await asyncio.sleep(60)
 
         return results
 
