@@ -5,13 +5,13 @@ from typing import Optional
 import discord
 from constants.game_config import GameEventType
 from discord import app_commands
-from discord.ext import commands
 from utils.balance_helper import calculate_percentage_amount, validate_amount
+from utils.base_cog import BaseGameCog
 
 
-class Roll(commands.Cog):
+class Roll(BaseGameCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
 
     @app_commands.command(name="roll", description="Roll a dice against the dealer")
     @app_commands.describe(
@@ -33,15 +33,14 @@ class Roll(commands.Cog):
         amount: Optional[app_commands.Range[int, 1, None]] = None,
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
-
         user_id = interaction.user.id
-        if user_id in self.bot.active_blackjack_players:
-            await interaction.response.send_message(
-                "You are in a Blackjack game! Please finish the game first",
-                ephemeral=True,
-            )
+
+        if await self.check_blackjack_conflict(user_id, interaction):
             return
+
         await interaction.response.defer()
+
+        # Resolve amount (existing logic)
         if not action and not amount:
             await interaction.edit_original_response(
                 content="You must specify an amount or choose a roll option.",
@@ -52,14 +51,13 @@ class Roll(commands.Cog):
                 content="You can only choose one option: amount or action."
             )
             return
-        balance = await self.bot.database.user_db.get_balance(user_id)
+
+        balance = await self.get_balance(user_id)
 
         if action and not amount:
             amount = calculate_percentage_amount(balance, action.value)
 
-        error = validate_amount(amount, balance)
-        if error:
-            await interaction.edit_original_response(content=error)
+        if not await self.validate_balance(user_id, amount, interaction, deferred=True):
             return
 
         await perform_roll(
@@ -83,7 +81,6 @@ async def perform_roll(bot, interaction, user_id, amount, action):
     stats_raw = await bot.database.game_db.get_user_game_stats(user_id)
     stats = dict(stats_raw.get("game_stats", {}))
 
-    # Ensure stat keys exist
     stats["rolls_played"] = stats.get("rolls_played", 0) + 1
     stats["rolls_won"] = stats.get("rolls_won", 0)
     stats["rolls_lost"] = stats.get("rolls_lost", 0)
@@ -117,9 +114,7 @@ async def perform_roll(bot, interaction, user_id, amount, action):
 
     tied_count = stats["rolls_played"] - stats["rolls_won"] - stats["rolls_lost"]
 
-    # await bot.database.user_db.set_balance(user_id, final_balance)
     await bot.database.user_db.increment_balance(user_id, outcome)
-    # Log roll history
     await bot.database.game_db.log_roll_history(
         user_id=user_id,
         user_roll=user_roll,
@@ -132,16 +127,15 @@ async def perform_roll(bot, interaction, user_id, amount, action):
         amount=amount,
     )
 
-    embed = discord.Embed(
+    cog = bot.cogs.get("Roll")
+    embed = cog.create_balance_embed(
         title="🎲 Dice Roll Result",
         description=f"You rolled: **{user_roll}**\nDealer rolled: **{dealer_roll}**\n\n**{result}**",
+        prev_balance=prev_balance,
+        new_balance=final_balance,
+        amount=amount,
         color=color,
-    )
-    embed.add_field(name="Bet Amount", value=f"${amount:,}", inline=True)
-    embed.add_field(name="Previous Balance", value=f"${prev_balance:,}", inline=True)
-    embed.add_field(name="Current Balance", value=f"${final_balance:,}", inline=True)
-    embed.set_footer(
-        text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count} | Total Played: {stats['rolls_played']}"
+        footer_text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count} | Total Played: {stats['rolls_played']}",
     )
 
     # Fetch last 10 roll results
@@ -155,11 +149,8 @@ async def perform_roll(bot, interaction, user_id, amount, action):
                 if entry["result"] == "win"
                 else "❌" if entry["result"] == "loss" else "➖"
             )
-
-            # Parse SQLite timestamp (stored in UTC)
             dt = datetime.fromisoformat(entry["timestamp"]).replace(tzinfo=timezone.utc)
             unix_timestamp = int(dt.timestamp())
-
             history_lines.append(
                 f"{emoji} Bet: ${entry['amount']:,} — <t:{unix_timestamp}:R>"
             )

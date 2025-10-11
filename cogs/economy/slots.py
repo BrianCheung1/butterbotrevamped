@@ -5,14 +5,13 @@ from typing import Optional
 import discord
 from constants.game_config import GameEventType
 from discord import app_commands
-from discord.ext import commands
 from utils.balance_helper import calculate_percentage_amount, validate_amount
-from utils.formatting import format_number
+from utils.base_cog import BaseGameCog
 
 
-class Slots(commands.Cog):
+class Slots(BaseGameCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
 
     @app_commands.command(name="slots", description="Play a game of slots")
     @app_commands.describe(
@@ -22,7 +21,7 @@ class Slots(commands.Cog):
         action=[
             app_commands.Choice(name="100%", value="100%"),
             app_commands.Choice(name="75%", value="75%"),
-            app_commands.Choice(name="50%", value="50%f"),
+            app_commands.Choice(name="50%", value="50%"),
             app_commands.Choice(name="25%", value="25%"),
         ]
     )
@@ -36,13 +35,13 @@ class Slots(commands.Cog):
     ) -> None:
 
         user_id = interaction.user.id
-        if user_id in self.bot.active_blackjack_players:
-            await interaction.response.send_message(
-                "You are in a Blackjack game! Please finish the game first",
-                ephemeral=True,
-            )
+
+        # Check blackjack conflict (NEW: using base method)
+        if await self.check_blackjack_conflict(user_id, interaction):
             return
+
         await interaction.response.defer()
+
         if not action and not amount:
             await interaction.edit_original_response(
                 content="You must specify an amount or choose a slots option.",
@@ -53,14 +52,14 @@ class Slots(commands.Cog):
                 content="You can only choose one option: amount or action."
             )
             return
-        balance = await self.bot.database.user_db.get_balance(user_id)
+
+        balance = await self.get_balance(user_id)  # NEW: using base method
 
         if action and not amount:
             amount = calculate_percentage_amount(balance, action.value)
 
-        error = validate_amount(amount, balance)
-        if error:
-            await interaction.edit_original_response(content=error)
+        # Validate balance (NEW: using base method)
+        if not await self.validate_balance(user_id, amount, interaction, deferred=True):
             return
 
         await perform_slots(
@@ -106,12 +105,12 @@ async def perform_slots(bot, interaction, user_id, amount, action):
 
     if three_line_win:
         multiplier = 2
-        result = f"3 in a line! You win! ${format_number(amount * 2)}"
+        result = f"3 in a line! You win! ${amount * 2:,}"
         color = discord.Color.green()
         final_balance = prev_balance + amount * 2
         outcome = amount * 2
         stats["slots_won"] += 1
-        win_status = True  # Win status is True when there's a line win
+        win_status = True
     elif max_special_fruits >= 3:
         multiplier = fruit_rewards.get(max_special_fruits, 0)
 
@@ -122,41 +121,43 @@ async def perform_slots(bot, interaction, user_id, amount, action):
             if count == max_special_fruits
         )
 
-        result = f"{max_special_fruits} {emoji} fruits! You win! ${format_number(amount * multiplier)}"
+        result = (
+            f"{max_special_fruits} {emoji} fruits! You win! ${amount * multiplier:,}"
+        )
         color = discord.Color.green()
         final_balance = prev_balance + amount * multiplier
         outcome = amount * multiplier
         stats["slots_won"] += 1
-        win_status = True  # Win status is True when special fruits are 3 or more
+        win_status = True
     else:
         result = "No Matches"
         color = discord.Color.red()
         final_balance = prev_balance - amount
         stats["slots_lost"] += 1
         outcome = -amount
-        win_status = False  # Win status is False when there are no matches
+        win_status = False
 
     # Update the user's balance and game stats
-    # await bot.database.user_db.set_balance(user_id, final_balance)
     await bot.database.user_db.increment_balance(user_id, outcome)
 
     # Store the win status correctly for the event
     await bot.database.game_db.set_user_game_stats(
         user_id,
         GameEventType.SLOT,
-        win_status,  # Use the win_status directly here
-        (
-            amount * multiplier if win_status else amount
-        ),  # Multiply only if win_status is True
+        win_status,
+        (amount * multiplier if win_status else amount),
     )
 
-    embed = discord.Embed(title="🎰 Slots", color=color)
-    embed.add_field(name="Result", value=result, inline=False)
-    embed.add_field(name="Bet", value=f"${amount:,}", inline=True)
-    embed.add_field(name="Previous Balance", value=f"${prev_balance:,}", inline=True)
-    embed.add_field(name="Current Balance", value=f"${final_balance:,}", inline=True)
-    embed.set_footer(
-        text=f"Slots Won: {stats['slots_won']} | Slots Lost: {stats['slots_lost']} | Slots Played: {stats['slots_played']}"
+    # NEW: Using base method to create embed with footer
+    cog = bot.cogs.get("Slots")
+    embed = cog.create_balance_embed(
+        title="🎰 Slots",
+        description=result,
+        prev_balance=prev_balance,
+        new_balance=final_balance,
+        amount=amount,
+        color=color,
+        footer_text=f"Slots Won: {stats['slots_won']} | Slots Lost: {stats['slots_lost']} | Slots Played: {stats['slots_played']}",
     )
 
     view = SlotsAgainView(bot, user_id, None if action else amount, action)
@@ -179,11 +180,6 @@ class SlotsAgainView(discord.ui.View):
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
-        # try:
-        #     await self.message.edit(view=self)
-        # except discord.NotFound:
-        #     self.bot.logger.debug("Message not found when disabling buttons.")
-        #     pass
         if hasattr(self, "message_id") and self.channel:
             try:
                 message = await self.channel.fetch_message(self.message_id)

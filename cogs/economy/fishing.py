@@ -5,7 +5,7 @@ from time import time
 import discord
 from constants.fishing_config import FISHING_RARITY_TIERS
 from discord import app_commands
-from discord.ext import commands
+from utils.base_cog import BaseGameCog
 from utils.equips import get_tool_bonus
 from utils.work import (FishingResult, calculate_value_bonuses,
                         calculate_xp_bonuses, create_work_embed)
@@ -53,9 +53,10 @@ async def perform_fishing(bot, user_id) -> FishingResult:
     )
 
     # Step 8: Balance
-    prev_balance = await bot.database.user_db.get_balance(user_id)
+    cog = bot.cogs.get("Fishing")
+    prev_balance = await cog.get_balance(user_id)
     new_balance = prev_balance + total_value
-    await bot.database.user_db.increment_balance(user_id, total_value)
+    await cog.add_balance(user_id, total_value)
 
     return FishingResult(
         fished_item,
@@ -192,9 +193,9 @@ class FishAgainView(discord.ui.View):
             pass
 
 
-class Fishing(commands.Cog):
+class Fishing(BaseGameCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
         self.active_sessions = {}
         self.cooldowns = {}
         self.failures = {}

@@ -1,5 +1,6 @@
-import aiosqlite
 from datetime import datetime
+
+import aiosqlite
 from logger import setup_logger
 from utils.database_errors import db_error_handler
 

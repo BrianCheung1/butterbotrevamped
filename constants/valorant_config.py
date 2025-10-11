@@ -28,7 +28,6 @@ RANK_ORDER = {
     "unrated": 0,
 }
 
-# FIXED: Centralized configuration for Valorant module
 VALORANT_CONFIG = {
     # API Caching durations (in seconds)
     "cache_ttl": {

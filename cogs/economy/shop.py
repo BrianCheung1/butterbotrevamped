@@ -4,14 +4,15 @@ from datetime import timedelta, timezone
 import discord
 from constants.shop_config import SHOP_ITEMS
 from discord import app_commands
-from discord.ext import commands
+
+from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
 from utils.shop_helpers import get_all_shop_items, get_shop_item_data
 
 
-class Shop(commands.Cog):
+class Shop(BaseGameCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
 
     @app_commands.command(name="shop", description="Buy items from the shop.")
     @app_commands.describe(item="Item you want to buy")
@@ -28,14 +29,11 @@ class Shop(commands.Cog):
     ):
         user_id = interaction.user.id
 
-        if user_id in self.bot.active_blackjack_players:
-            await interaction.response.send_message(
-                "You are in a Blackjack game! Please finish the game first.",
-                ephemeral=True,
-            )
+        # Check blackjack conflict
+        if await self.check_blackjack_conflict(user_id, interaction):
             return
 
-        balance = await self.bot.database.user_db.get_balance(user_id)
+        # balance = await self.get_balance(user_id)
         work_stats_raw = await self.bot.database.work_db.get_user_work_stats(user_id)
         work_stats = dict(work_stats_raw["work_stats"])
         await interaction.response.defer()
@@ -93,15 +91,12 @@ class Shop(commands.Cog):
         else:
             cost = item_data["price"]
 
-        if balance < cost:
-            await interaction.followup.send(
-                f"You need ${format_number(cost)} to buy **{item_data['name']}**, "
-                f"but you only have ${format_number(balance)}."
-            )
+        # Validate balance
+        if not await self.validate_balance(user_id, cost, interaction, deferred=True):
             return
 
         # Deduct balance
-        await self.bot.database.user_db.increment_balance(user_id, -cost)
+        await self.deduct_balance(user_id, cost)
 
         # Apply item
         if item_key == "bank_upgrade":
@@ -128,6 +123,10 @@ class Shop(commands.Cog):
             )
             relative = discord.utils.format_dt(expires_at, style="R")
             message += f"\nYour buff expires {relative}"
+
+        # Log transaction
+        self.log_transaction(user_id, "SHOP_BUY", cost, f"Item: {item_data['name']}")
+
         await interaction.followup.send(message)
 
 

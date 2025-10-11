@@ -2,9 +2,9 @@ import discord
 from discord import app_commands
 from discord.app_commands import Choice
 from discord.ext import commands
-from utils.channels import CHANNEL_TYPES, get_channel_display_info
-from utils.checks import is_owner_or_mod_check
 from logger import setup_logger
+from utils.channels import CHANNEL_TYPES
+from utils.checks import is_owner_or_mod_check
 
 logger = setup_logger("GuildChannels")
 

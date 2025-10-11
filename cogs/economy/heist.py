@@ -3,13 +3,13 @@ import random
 
 import discord
 from discord import app_commands
-from discord.ext import commands
 from utils.balance_helper import validate_amount
+from utils.base_cog import BaseGameCog
 
 
-class Heist(commands.Cog):
+class Heist(BaseGameCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
         self.active_heist_creators = set()
         self.active_heist_users = set()
 
@@ -17,12 +17,7 @@ class Heist(commands.Cog):
     async def heist(self, interaction: discord.Interaction):
         user_id = interaction.user.id
 
-        # Combined check for blackjack game and heist participation
-        if user_id in self.bot.active_blackjack_players:
-            await interaction.response.send_message(
-                "❌ You are in a Blackjack game! Please finish that first.",
-                ephemeral=True,
-            )
+        if await self.check_blackjack_conflict(user_id, interaction):
             return
 
         if user_id in self.active_heist_users:
@@ -38,7 +33,6 @@ class Heist(commands.Cog):
             )
             return
 
-        # Create heist and send countdown
         self.active_heist_creators.add(user_id)
         view = HeistButtonView(self.bot, interaction, self.active_heist_creators)
         await interaction.response.send_message(
@@ -48,8 +42,6 @@ class Heist(commands.Cog):
 
         followup_message = await interaction.original_response()
         view.message = followup_message
-
-        # Countdown and heist start logic in background task
         asyncio.create_task(self.start_countdown(view, followup_message, user_id))
 
     async def start_countdown(self, view, followup_message, user_id):
@@ -93,7 +85,6 @@ class HeistButtonView(discord.ui.View):
 
     def get_dynamic_win_chance(self):
         num = len(self.participants)
-        # Simplified win chance calculation
         return min(0.35 + 0.05 * (num - 1), 0.55)
 
     @discord.ui.button(label="💰 Join Heist", style=discord.ButtonStyle.green)
@@ -113,9 +104,7 @@ class HeistButtonView(discord.ui.View):
             return
 
         win_chance = self.get_dynamic_win_chance()
-        winners = []
 
-        # Randomize winning and losing messages
         win_messages = [
             "escaped the cops with a fat stack!",
             "made it out with the loot and lived to tell the tale!",
@@ -128,14 +117,13 @@ class HeistButtonView(discord.ui.View):
             "was too slow and got arrested by the cops!",
         ]
 
-        # Process all participants in one loop, collecting results and updating balance
         winner_mentions = []
         loser_mentions = []
         for user_id in self.participants:
             bet = self.participant_bets[user_id]
             if random.random() <= win_chance:
-                winners.append(user_id)
-                await self.bot.database.user_db.increment_balance(user_id, bet * 2)
+                cog = self.bot.cogs.get("Heist")
+                await cog.add_balance(user_id, bet * 2)
                 winner_mentions.append(
                     f"<@{user_id}> {random.choice(win_messages)} with **${bet * 2:,}**!"
                 )
@@ -150,13 +138,12 @@ class HeistButtonView(discord.ui.View):
                     user_id, win=False, amount=bet
                 )
 
-        # Prepare result message
         result_message = "💥 The heist is over!\n"
-        if winners:
+        if winner_mentions:
             result_message += f"🏆 Winners: {', '.join(winner_mentions)}\n"
         if loser_mentions:
             result_message += f"💀 Caught: {', '.join(loser_mentions)}\n"
-        if not winners:
+        if not winner_mentions:
             result_message += "Nobody made it out alive..."
 
         try:
@@ -164,7 +151,6 @@ class HeistButtonView(discord.ui.View):
         except Exception as e:
             print(f"[Result Message Error] {e}")
 
-        # Clean up
         heist_cog = self.bot.cogs.get("Heist")
         if heist_cog:
             for user_id in self.participants:
@@ -192,7 +178,6 @@ class HeistBetModal(discord.ui.Modal, title="Enter Your Heist Bet"):
     async def on_submit(self, interaction: discord.Interaction):
         user_id = self.user.id
 
-        # ❗ Check if the join button is disabled (heist started)
         if all(button.disabled for button in self.view.children):
             await interaction.response.send_message(
                 "❌ The heist has already started! You can't join now.", ephemeral=True
@@ -211,8 +196,8 @@ class HeistBetModal(discord.ui.Modal, title="Enter Your Heist Bet"):
                 "❌ Bet must be more than 0.", ephemeral=True
             )
             return
-
-        balance = await self.bot.database.user_db.get_balance(user_id)
+        cog = self.bot.cogs.get("Heist")
+        balance = await cog.get_balance(user_id)
         error = validate_amount(bet, balance)
         if error:
             await interaction.response.send_message(
@@ -220,11 +205,10 @@ class HeistBetModal(discord.ui.Modal, title="Enter Your Heist Bet"):
             )
             return
 
-        # ✅ Everything is valid — process the join
-        await self.bot.database.user_db.increment_balance(user_id, -bet)
+        await cog.deduct_balance(user_id, bet)
         self.view.participants.append(user_id)
         self.view.participant_bets[user_id] = bet
-        self.view.bot.cogs["Heist"].active_heist_users.add(user_id)
+        self.bot.cogs["Heist"].active_heist_users.add(user_id)
 
         await interaction.response.send_message(
             f"✅ {interaction.user.mention} joined the heist with **${bet:,}**!",
@@ -234,9 +218,6 @@ class HeistBetModal(discord.ui.Modal, title="Enter Your Heist Bet"):
         await interaction.response.send_message(
             f"❌ Something went wrong. {error}", ephemeral=True
         )
-
-    async def on_timeout(self):
-        print("Modal timed out.")
 
 
 async def setup(bot):

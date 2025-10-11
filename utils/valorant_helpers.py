@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Optional, Tuple
+from typing import Tuple
 
 import discord
 from constants.valorant_config import RANK_ORDER
@@ -60,7 +60,6 @@ def parse_player_rank(current_data: dict) -> Tuple[str, int, int]:
     """
     Parse player rank information from current MMR data.
 
-    FIXED: Centralized utility function to avoid duplication.
 
     Args:
         current_data: Current player data dict from API
@@ -96,7 +95,6 @@ async def load_cached_players_from_db(db):
     """
     Load cached players from the database on bot startup.
 
-    FIXED: Returns dict with (name, tag) tuple keys for batch_set().
 
     Args:
         db: Database manager instance

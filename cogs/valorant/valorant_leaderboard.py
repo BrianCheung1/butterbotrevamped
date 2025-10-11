@@ -1,7 +1,3 @@
-"""
-Updated ValorantLeaderboard cog with optimized batch processing and thread-safe caching.
-"""
-
 import asyncio
 from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional
@@ -10,8 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils.channels import broadcast_embed_to_guilds
+from utils.valorant_data_manager import RateLimitError
 from utils.valorant_helpers import get_rank_value, name_autocomplete, tag_autocomplete
-from utils.valorant_data_manager import PlayerNotFoundError, RateLimitError
 
 
 class ValorantLeaderboard(commands.Cog):
@@ -138,7 +134,6 @@ class ValorantLeaderboard(commands.Cog):
             f"📊 Players to update: {len(players_to_update)}, Skipped: {skipped_count}"
         )
 
-        # FIXED: Parallelize batch processing instead of sequential sleep
         batch_size = 5
         batches = [
             players_to_update[i : i + batch_size]
@@ -214,10 +209,8 @@ class ValorantLeaderboard(commands.Cog):
                     self.bot.logger.error(
                         f"Error deleting batch from database: {e}", exc_info=True
                     )
-
-            # Small delay between batches to avoid overwhelming API (reduced from 60s)
             if batch_num < len(batches):
-                await asyncio.sleep(10)
+                await asyncio.sleep(60)
 
         self.bot.logger.info(
             f"✅ MMR Update Complete - Updated: {updated_count}, "

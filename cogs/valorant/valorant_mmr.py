@@ -5,16 +5,16 @@ from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils.valorant_data_manager import (
+    APIUnavailableError,
+    PlayerNotFoundError,
+    RateLimitError,
+)
 from utils.valorant_helpers import (
     convert_to_datetime,
     name_autocomplete,
-    tag_autocomplete,
     parse_player_rank,
-)
-from utils.valorant_data_manager import (
-    PlayerNotFoundError,
-    RateLimitError,
-    APIUnavailableError,
+    tag_autocomplete,
 )
 
 
@@ -353,7 +353,7 @@ class ValorantMMRHistory(commands.Cog):
                 f"Error fetching MMR history for {name}#{tag}: {e}", exc_info=True
             )
             await interaction.followup.send(
-                f"❌ An unexpected error occurred while fetching data.", ephemeral=True
+                "❌ An unexpected error occurred while fetching data.", ephemeral=True
             )
 
 

@@ -1,22 +1,15 @@
+
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, List, Tuple
-import asyncio
+from typing import Dict, Optional, Tuple
 
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.valorant_helpers import (
-    convert_to_datetime,
-    name_autocomplete,
-    parse_season,
-    tag_autocomplete,
-)
-from utils.valorant_data_manager import (
-    PlayerNotFoundError,
-    RateLimitError,
-    APIUnavailableError,
-)
+from utils.valorant_data_manager import (APIUnavailableError,
+                                         PlayerNotFoundError, RateLimitError)
+from utils.valorant_helpers import (convert_to_datetime, name_autocomplete,
+                                    parse_season, tag_autocomplete)
 
 # Configuration - Centralize magic numbers
 MAX_RECENT_MATCHES = 50  # Limit detailed processing to 50 matches
@@ -144,14 +137,14 @@ class ValorantStats(commands.Cog):
         self, match_data: dict, requesting_player_puuid: str
     ):
         """
-        Build a detailed scoreboard embed for a match.
+        Build a detailed scoreboard embed for a match with placement rankings.
 
         Args:
             match_data: The match data from stored-matches (contains meta with id)
             requesting_player_puuid: PUUID of the player who requested stats
 
         Returns:
-            discord.Embed with full scoreboard
+            discord.Embed with full scoreboard including placements
         """
         try:
             match_id = match_data.get("meta", {}).get("id")
@@ -176,10 +169,10 @@ class ValorantStats(commands.Cog):
             # Determine match result and color
             if red_score > blue_score:
                 result = f"Red Victory {red_score}-{blue_score}"
-                winner_color = discord.Color.from_rgb(220, 20, 60)  # Crimson red
+                winner_color = discord.Color.from_rgb(220, 20, 60)
             elif blue_score > red_score:
                 result = f"Blue Victory {blue_score}-{red_score}"
-                winner_color = discord.Color.from_rgb(65, 105, 225)  # Royal blue
+                winner_color = discord.Color.from_rgb(65, 105, 225)
             else:
                 result = f"Draw {red_score}-{blue_score}"
                 winner_color = discord.Color.from_rgb(128, 128, 128)
@@ -190,8 +183,9 @@ class ValorantStats(commands.Cog):
                 color=winner_color,
             )
 
-            # Extract first blood stats for all players
+            # Extract first blood stats and ACS for all players
             fb_stats, _, _ = await self._extract_first_blood_stats(full_match_data)
+            all_player_acs = await self._extract_all_player_acs(full_match_data)
 
             players_data = match_info.get("players", {})
             if isinstance(players_data, dict):
@@ -199,20 +193,32 @@ class ValorantStats(commands.Cog):
             else:
                 all_players = players_data or []
 
-            # Separate and sort by team
+            # Sort all players by ACS (descending) to get overall rankings
+            all_players_sorted = sorted(
+                all_players,
+                key=lambda p: all_player_acs.get(p.get("puuid", ""), 0),
+                reverse=True,
+            )
+
+            # Create mapping of puuid to overall placement
+            puuid_to_placement = {
+                p.get("puuid", ""): i + 1 for i, p in enumerate(all_players_sorted)
+            }
+
+            # Separate by team and sort by ACS within each team
             red_team = sorted(
                 [p for p in all_players if p.get("team", "").lower() == "red"],
-                key=lambda p: p.get("stats", {}).get("score", 0),
+                key=lambda p: all_player_acs.get(p.get("puuid", ""), 0),
                 reverse=True,
             )
             blue_team = sorted(
                 [p for p in all_players if p.get("team", "").lower() == "blue"],
-                key=lambda p: p.get("stats", {}).get("score", 0),
+                key=lambda p: all_player_acs.get(p.get("puuid", ""), 0),
                 reverse=True,
             )
 
             def format_player_line(player):
-                """Format a single player's stats line."""
+                """Format a single player's stats line with overall placement."""
                 stats = player.get("stats", {})
                 character = player.get("character", {})
                 rank = player.get("currenttier_patched", "Unranked")
@@ -252,17 +258,20 @@ class ValorantStats(commands.Cog):
                 fb_str = f" 🩸{fb}" if fb > 0 else ""
                 fd_str = f" 💀{fd}" if fd > 0 else ""
 
+                # Overall placement
+                overall_placement = puuid_to_placement.get(puuid, "?")
+
                 return (
                     f"{prefix} `{kills:2d}/{deaths:2d}/{assists:2d}` "
                     f"**{name}#{tag}** | {agent} [{rank}]\n"
-                    f"         HS: {hs_pct:2d}% | ACS: {acs:3d}{fb_str}{fd_str}"
+                    f"         HS: {hs_pct:2d}% | ACS: {acs:3d} • #{overall_placement}{fb_str}{fd_str}"
                 )
 
-            # Format red team
+            # Format red team with overall placements
             red_lines = [format_player_line(p) for p in red_team]
             red_field_value = "\n".join(red_lines) if red_lines else "No players"
 
-            # Format blue team
+            # Format blue team with overall placements
             blue_lines = [format_player_line(p) for p in blue_team]
             blue_field_value = "\n".join(blue_lines) if blue_lines else "No players"
 
@@ -290,7 +299,7 @@ class ValorantStats(commands.Cog):
             # Build detailed footer with stats
             total_rounds = red_score + blue_score
 
-            footer_text = f"➤ = You | 🩸 = First Bloods | 💀 = First Deaths | Total Rounds: {total_rounds}"
+            footer_text = f"➤ = You | # = Overall ACS Placement (1-10) | 🩸 = First Bloods | 💀 = First Deaths | Total Rounds: {total_rounds}"
             embed.set_footer(text=footer_text)
 
             return embed
@@ -362,16 +371,88 @@ class ValorantStats(commands.Cog):
             self.bot.logger.warning(f"Error calculating player placement: {e}")
             return None
 
+    async def _extract_all_player_acs(self, match_data: dict) -> Dict[str, int]:
+        """
+        Extract ACS for all players in a match.
+
+        Args:
+            match_data: Full match data from API
+
+        Returns:
+            Dict mapping puuid -> acs_score
+        """
+        try:
+            if not match_data or "data" not in match_data:
+                return {}
+
+            match_info = match_data["data"]
+            players_data = match_info.get("players", {})
+
+            if isinstance(players_data, dict):
+                all_players = players_data.get("all_players", [])
+            else:
+                all_players = players_data or []
+
+            teams = match_info.get("teams", {})
+            total_rounds = (
+                sum(
+                    m.get("rounds_won", 0)
+                    for m in teams.values()
+                    if isinstance(m, dict)
+                )
+                or 1
+            )
+
+            player_acs = {}
+            for player in all_players:
+                puuid = player.get("puuid", "")
+                score = player.get("stats", {}).get("score", 0)
+                acs = round(score / total_rounds) if total_rounds > 0 else 0
+                if puuid:
+                    player_acs[puuid] = acs
+
+            return player_acs
+
+        except Exception as e:
+            self.bot.logger.warning(f"Error extracting ACS for match: {e}")
+            return {}
+
+    def _calculate_player_placement_in_match(
+        self, player_puuid: str, player_acs_map: Dict[str, int]
+    ) -> Optional[int]:
+        """
+        Calculate player's placement based on ACS ranking.
+
+        Args:
+            player_puuid: The player's PUUID
+            player_acs_map: Dict of puuid -> acs_score for all players
+
+        Returns:
+            Placement (1-10) or None if player not found
+        """
+        if player_puuid not in player_acs_map:
+            return None
+
+        # Sort by ACS descending
+        sorted_players = sorted(
+            player_acs_map.items(), key=lambda x: x[1], reverse=True
+        )
+
+        for placement, (puuid, _) in enumerate(sorted_players, 1):
+            if puuid == player_puuid:
+                return placement
+
+        return None
+
     async def build_overall_stats(self, matches, player_puuid: str):
-        """Build comprehensive overall statistics from matches (optimized API calls)."""
+        """Build comprehensive overall statistics from matches with per-game placements."""
         total_kills = total_deaths = total_assists = 0
         total_headshots = total_body_shots = total_leg_shots = 0
         total_score = total_rounds = 0
         first_bloods = first_deaths = 0
         wins = losses = draws = 0
-        placements = []
+        placements_per_game = []
 
-        # FIXED: Limit to MAX_RECENT_MATCHES for detailed processing
         recent_matches = matches[:MAX_RECENT_MATCHES]
         self.bot.logger.info(
             f"Fetching detailed stats for {len(recent_matches)} matches (limited from {len(matches)})..."
@@ -429,10 +510,13 @@ class ValorantStats(commands.Cog):
                     first_bloods += fb_count
                     first_deaths += fd_count
 
-                    # Calculate placement based on ACS ranking
-                    placement = self._get_player_placement(match_data, player_puuid)
+                    # Calculate placement based on overall ACS ranking
+                    player_acs_map = await self._extract_all_player_acs(match_data)
+                    placement = self._calculate_player_placement_in_match(
+                        player_puuid, player_acs_map
+                    )
                     if placement:
-                        placements.append(placement)
+                        placements_per_game.append(placement)
                 except Exception as e:
                     self.bot.logger.warning(
                         f"Error processing stats for match {mid}: {e}"
@@ -444,7 +528,6 @@ class ValorantStats(commands.Cog):
         kd_ratio = (total_kills / total_deaths) if total_deaths > 0 else total_kills
         avg_combat_score = (total_score / total_rounds) if total_rounds > 0 else 0
         win_rate = (wins / len(matches) * 100) if matches else 0
-        avg_placement = sum(placements) / len(placements) if placements else 0
 
         return {
             "matches": len(matches),
@@ -461,14 +544,12 @@ class ValorantStats(commands.Cog):
             "first_bloods": first_bloods,
             "first_deaths": first_deaths,
             "fb_analyzed_matches": len(match_ids),
-            "avg_placement": avg_placement,
-            "placements_analyzed": len(placements),
+            "placements_per_game": placements_per_game,
         }
 
     async def build_kda_lines(self, matches, player_puuid: str):
-        """Build KDA display lines from matches with first blood/death stats."""
+        """Build KDA display lines from matches with placement information."""
         lines = []
-        # FIXED: Use MAX_KDA_DISPLAY constant
         detailed_matches = matches[:MAX_KDA_DISPLAY]
 
         # Batch fetch match details
@@ -526,23 +607,38 @@ class ValorantStats(commands.Cog):
                 else "❌" if team_score < opp_score else "➖"
             )
 
-            # Get first blood stats from pre-fetched data
+            # Get first blood stats and placement from pre-fetched data
             fb_indicator = fd_indicator = ""
+            placement_indicator = ""
             match_id = meta.get("id")
+
             if match_id in match_details_map:
                 try:
+                    match_data = match_details_map[match_id]
+
+                    # Get first blood stats
                     _, fb_count, fd_count = await self._extract_first_blood_stats(
-                        match_details_map[match_id], player_puuid
+                        match_data, player_puuid
                     )
                     fb_indicator = f" 🩸×{fb_count}" if fb_count > 0 else ""
                     fd_indicator = f" 💀×{fd_count}" if fd_count > 0 else ""
+
+                    # Get placement
+                    player_acs_map = await self._extract_all_player_acs(match_data)
+                    placement = self._calculate_player_placement_in_match(
+                        player_puuid, player_acs_map
+                    )
+                    if placement:
+                        placement_indicator = f" • 📊 #{placement}"
+
                 except Exception as e:
-                    self.bot.logger.warning(f"Error getting FB stats: {e}")
+                    self.bot.logger.warning(f"Error getting match stats: {e}")
 
             lines.append(
                 f"{result_emoji} **{map_name}** ({map_score}) • {agent}\n"
-                f"└ `{kills}/{deaths}/{assists}` • HS: {hs_rate} • ACS: {avg_score}{fb_indicator}{fd_indicator}"
+                f"└ `{kills}/{deaths}/{assists}` • HS: {hs_rate} • ACS: {avg_score}{placement_indicator}{fb_indicator}{fd_indicator}"
             )
+
         return lines
 
     @app_commands.command(
@@ -638,11 +734,6 @@ class ValorantStats(commands.Cog):
                 if overall["fb_analyzed_matches"] < overall["matches"]
                 else ""
             )
-            placement_note = (
-                f" (from {overall['placements_analyzed']} matches)"
-                if overall["placements_analyzed"] < overall["matches"]
-                else ""
-            )
             embed.add_field(
                 name="🎯 Overall Performance",
                 value=(
@@ -651,11 +742,26 @@ class ValorantStats(commands.Cog):
                     f"(KD: {overall['kd_ratio']:.2f})\n"
                     f"**Headshot %:** {overall['hs_percentage']:.1f}%\n"
                     f"**Avg Combat Score:** {overall['avg_combat_score']:.0f}\n"
-                    f"**Avg Placement:** #{overall['avg_placement']:.1f}{placement_note}\n"
                     f"**First Bloods:** {overall['first_bloods']} 🩸 | **First Deaths:** {overall['first_deaths']} 💀{fb_note}"
                 ),
                 inline=False,
             )
+            # Add placements section if available
+            if overall["placements_per_game"]:
+                placements_list = " ".join(
+                    f"#{p}" for p in overall["placements_per_game"]
+                )
+                avg_placement = sum(overall["placements_per_game"]) / len(
+                    overall["placements_per_game"]
+                )
+                embed.add_field(
+                    name="📊 Placements",
+                    value=(
+                        f"**Per Match:** {placements_list}\n"
+                        f"**Average:** #{avg_placement:.1f}"
+                    ),
+                    inline=False,
+                )
 
             if map_stats:
                 map_lines = []

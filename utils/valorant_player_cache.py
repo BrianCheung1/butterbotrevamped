@@ -4,7 +4,8 @@ Replace direct access to bot.valorant_players with this manager.
 """
 
 import asyncio
-from typing import Dict, Tuple, Optional
+from typing import Dict, Optional, Tuple
+
 from logger import setup_logger
 
 logger = setup_logger("PlayerCache")
