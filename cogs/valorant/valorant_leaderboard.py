@@ -1,6 +1,5 @@
 """
-Updated ValorantLeaderboard cog using centralized data manager.
-Replace your existing valorant_leaderboard.py with this version.
+Updated ValorantLeaderboard cog with optimized batch processing and thread-safe caching.
 """
 
 import asyncio
@@ -16,7 +15,7 @@ from utils.valorant_data_manager import PlayerNotFoundError, RateLimitError
 
 
 class ValorantLeaderboard(commands.Cog):
-    """Valorant Leaderboard with centralized data management."""
+    """Valorant Leaderboard with optimized batch processing and thread-safe caching."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -66,6 +65,9 @@ class ValorantLeaderboard(commands.Cog):
 
     async def send_daily_leaderboards(self):
         """Generate and broadcast daily leaderboard."""
+        # Get all players from thread-safe cache
+        all_players = await self.bot.valorant_players.get_all()
+
         leaderboard_data = [
             {
                 "name": n,
@@ -73,7 +75,7 @@ class ValorantLeaderboard(commands.Cog):
                 "rank": p["rank"],
                 "elo": p["elo"],
             }
-            for (n, t), p in self.bot.valorant_players.items()
+            for (n, t), p in all_players.items()
             if p["rank"].lower() != "unrated"
         ]
 
@@ -91,7 +93,7 @@ class ValorantLeaderboard(commands.Cog):
         )
 
     async def run_mmr_update(self):
-        """Update MMR for all players using the data manager."""
+        """Update MMR for all players with parallelized batch processing."""
         self.bot.logger.info("🔄 Starting MMR update cycle...")
 
         players = await self.bot.database.players_db.get_all_player_mmr()
@@ -136,18 +138,29 @@ class ValorantLeaderboard(commands.Cog):
             f"📊 Players to update: {len(players_to_update)}, Skipped: {skipped_count}"
         )
 
-        # Batch update database records
+        # FIXED: Parallelize batch processing instead of sequential sleep
         batch_size = 5
-        for i in range(0, len(players_to_update), batch_size):
-            batch = players_to_update[i : i + batch_size]
+        batches = [
+            players_to_update[i : i + batch_size]
+            for i in range(0, len(players_to_update), batch_size)
+        ]
+
+        for batch_num, batch in enumerate(batches, 1):
             self.bot.logger.info(
-                f"Processing batch {i // batch_size + 1}/{(len(players_to_update) + batch_size - 1) // batch_size}"
+                f"Processing batch {batch_num}/{len(batches)} ({len(batch)} players)"
             )
 
             player_tuples = [(p["name"], p["tag"]) for p in batch]
-            results = await self.data_manager.batch_get_player_mmr(player_tuples)
 
-            # Collect updates to batch insert
+            try:
+                # Fetch MMR data for all players in batch
+                results = await self.data_manager.batch_get_player_mmr(player_tuples)
+            except RateLimitError as e:
+                self.bot.logger.warning(f"Rate limited: {e}")
+                # Stop processing but don't crash
+                break
+
+            # Collect updates and deletions
             updates = []
             deletions = []
 
@@ -156,41 +169,55 @@ class ValorantLeaderboard(commands.Cog):
                 mmr_data = results.get((name, tag))
 
                 if mmr_data is None:
-                    try:
-                        await self.data_manager.get_player_mmr(name, tag)
-                    except PlayerNotFoundError:
-                        self.bot.logger.info(f"🗑️ Deleting {name}#{tag} (not found)")
-                        deletions.append((name, tag))
-                        continue
-                    except Exception:
-                        error_count += 1
-                        continue
+                    # Player not found or error
+                    self.bot.logger.info(
+                        f"🗑️ Deleting {name}#{tag} (not found or error)"
+                    )
+                    deletions.append((name, tag))
+                    deleted_count += 1
+                    continue
 
                 try:
+                    # Parse MMR data
                     parsed = self.data_manager.parse_mmr_data(mmr_data)
                     updates.append((name, tag, parsed["rank"], parsed["elo"]))
-                    self.bot.valorant_players[(name, tag)] = {
-                        "rank": parsed["rank"],
-                        "elo": parsed["elo"],
-                    }
                     updated_count += 1
                 except Exception as e:
-                    self.bot.logger.error(f"❌ Error processing {name}#{tag}: {e}")
+                    self.bot.logger.error(
+                        f"❌ Error parsing MMR for {name}#{tag}: {e}", exc_info=True
+                    )
                     error_count += 1
 
-            # Batch insert/update all records at once
+            # Batch insert/update database records
             if updates:
-                await self.bot.database.players_db.batch_save_players(updates)
+                try:
+                    await self.bot.database.players_db.batch_save_players(updates)
 
-            # Batch delete all players at once
+                    # Update thread-safe cache
+                    cache_updates = {
+                        (name, tag): {"rank": rank, "elo": elo}
+                        for name, tag, rank, elo in updates
+                    }
+                    await self.bot.valorant_players.batch_set(cache_updates)
+                except Exception as e:
+                    self.bot.logger.error(
+                        f"Error saving batch to database: {e}", exc_info=True
+                    )
+
+            # Batch delete players
             if deletions:
-                await self.bot.database.players_db.batch_delete_players(deletions)
-                deleted_count += len(deletions)
-                for name, tag in deletions:
-                    self.bot.valorant_players.pop((name, tag), None)
+                try:
+                    await self.bot.database.players_db.batch_delete_players(deletions)
+                    # Remove from thread-safe cache
+                    await self.bot.valorant_players.batch_delete(deletions)
+                except Exception as e:
+                    self.bot.logger.error(
+                        f"Error deleting batch from database: {e}", exc_info=True
+                    )
 
-            if i + batch_size < len(players_to_update):
-                await asyncio.sleep(60)
+            # Small delay between batches to avoid overwhelming API (reduced from 60s)
+            if batch_num < len(batches):
+                await asyncio.sleep(10)
 
         self.bot.logger.info(
             f"✅ MMR Update Complete - Updated: {updated_count}, "
@@ -218,6 +245,9 @@ class ValorantLeaderboard(commands.Cog):
     ):
         await interaction.response.defer()
 
+        # Get all players from thread-safe cache
+        all_players = await self.bot.valorant_players.get_all()
+
         leaderboard_data = [
             {
                 "name": n,
@@ -225,7 +255,7 @@ class ValorantLeaderboard(commands.Cog):
                 "rank": p["rank"],
                 "elo": p["elo"],
             }
-            for (n, t), p in self.bot.valorant_players.items()
+            for (n, t), p in all_players.items()
             if p["rank"].lower() != "unrated"
         ]
 

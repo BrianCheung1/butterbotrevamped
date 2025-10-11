@@ -9,6 +9,7 @@ from utils.valorant_helpers import (
     convert_to_datetime,
     name_autocomplete,
     tag_autocomplete,
+    parse_player_rank,
 )
 from utils.valorant_data_manager import (
     PlayerNotFoundError,
@@ -98,19 +99,14 @@ class ValorantMMRHistory(commands.Cog):
         grouped_rows = ["  ".join(rows[i : i + 5]) for i in range(0, len(rows), 5)]
         return grouped_rows
 
-    def _parse_player_rank(self, current_data):
-        """Parse player rank from MMR data."""
-        games_needed = current_data.get("games_needed_for_rating", 0)
-        if games_needed > 0:
-            return "Unrated", 0, games_needed
-        rank = current_data.get("tier", {}).get("name", "Unknown")
-        rr = current_data.get("rr", 0)
-        return rank, rr, 0
-
     def _build_empty_history_embed(self, name, tag, mmr_data):
         """Build embed when no matches found."""
-        current = mmr_data.get("data", {}).get("current", {})
-        current_rank, current_rr, games_needed = self._parse_player_rank(current)
+        try:
+            current = mmr_data.get("data", {}).get("current", {})
+            current_rank, current_rr, games_needed = parse_player_rank(current)
+        except Exception as e:
+            self.bot.logger.warning(f"Error parsing player rank: {e}")
+            current_rank, current_rr, games_needed = "Unknown", 0, 0
 
         embed = discord.Embed(
             title=f"Current Rank and RR for {name}#{tag}",
@@ -136,9 +132,14 @@ class ValorantMMRHistory(commands.Cog):
         MAX_CHARS = 1024
         pages = []
 
-        current = mmr_data.get("data", {}).get("current", {})
-        current_rank, current_rr, games_needed = self._parse_player_rank(current)
-        shields = current.get("rank_protection_shields", 0)
+        try:
+            current = mmr_data.get("data", {}).get("current", {})
+            current_rank, current_rr, games_needed = parse_player_rank(current)
+            shields = current.get("rank_protection_shields", 0)
+        except Exception as e:
+            self.bot.logger.warning(f"Error parsing player rank: {e}")
+            current_rank, current_rr, games_needed = "Unknown", 0, 0
+            shields = 0
 
         # Build main embed
         main_embed = discord.Embed(
@@ -293,11 +294,15 @@ class ValorantMMRHistory(commands.Cog):
                 elo=parsed["elo"],
             )
 
-            # Update in-memory cache
-            self.bot.valorant_players[(name, tag)] = {
-                "rank": parsed["rank"],
-                "elo": parsed["elo"],
-            }
+            # Update thread-safe cache
+            await self.bot.valorant_players.set(
+                name,
+                tag,
+                {
+                    "rank": parsed["rank"],
+                    "elo": parsed["elo"],
+                },
+            )
 
             # Combine and deduplicate history
             combined_history = self._combine_and_deduplicate_history(

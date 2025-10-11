@@ -318,7 +318,47 @@ class ValorantDataManager:
 
         return await self._fetch_api(url, cache_key, "stored_matches", force_refresh)
 
+    async def get_match_details(
+        self, match_id: str, force_refresh: bool = False
+    ) -> Dict:
+        """
+        Get detailed information for a specific match.
+
+        Args:
+            match_id: Match ID
+            force_refresh: Force bypass cache
+
+        Returns:
+            Dict with detailed match data including rounds and kill events
+
+        Raises:
+            PlayerNotFoundError: When match not found (404)
+            APIUnavailableError: When API is down or network error
+        """
+        if not match_id:
+            logger.warning("Empty match_id provided to get_match_details()")
+            raise ValueError("match_id cannot be empty")
+
+        cache_key = f"match_details_{match_id}"
+        url = f"{self.API_BASE}/v2/match/{match_id}"
+
+        return await self._fetch_api(url, cache_key, "match_details", force_refresh)
+
     async def batch_get_player_mmr(self, players, region="na", force_refresh=False):
+        """
+        Fetch MMR data for multiple players in parallel with proper error handling.
+
+        Args:
+            players: List of (name, tag) tuples
+            region: Region to fetch from
+            force_refresh: Force bypass cache
+
+        Returns:
+            Dict mapping (name, tag) -> mmr_data (or None if error)
+
+        Raises:
+            RateLimitError: If rate limited (stops all processing)
+        """
         results = {}
         batch_size = 5
 
@@ -337,10 +377,41 @@ class ValorantDataManager:
                     # Re-raise to stop processing
                     raise result
                 elif isinstance(result, Exception):
-                    logger.warning(f"Error: {result}")
+                    logger.warning(
+                        f"Error fetching MMR for {name}#{tag}: {result.__class__.__name__}: {result}"
+                    )
                     results[(name, tag)] = None
                 else:
                     results[(name, tag)] = result
+
+        return results
+
+    async def batch_get_match_details(self, match_ids: List[str]) -> Dict[str, Dict]:
+        """
+        Fetch detailed data for multiple matches in parallel.
+
+        Args:
+            match_ids: List of match IDs
+
+        Returns:
+            Dict mapping match_id -> match_data (or None if error)
+        """
+        if not match_ids:
+            return {}
+
+        results = {}
+        tasks = [self.get_match_details(mid) for mid in match_ids if mid]
+
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for mid, result in zip(match_ids, batch_results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    f"Error fetching match details for {mid}: {result.__class__.__name__}"
+                )
+                results[mid] = None
+            else:
+                results[mid] = result
 
         return results
 
@@ -353,19 +424,36 @@ class ValorantDataManager:
 
         Returns:
             Dict with parsed data: {rank, elo, games_needed}
+
+        Raises:
+            ValueError: If mmr_data is invalid
         """
-        if not mmr_data or "data" not in mmr_data:
-            return {"rank": "Unknown", "elo": 0, "games_needed": 0}
+        if not mmr_data:
+            raise ValueError("mmr_data cannot be None")
+
+        if "data" not in mmr_data:
+            logger.warning(f"Invalid MMR data structure: {mmr_data}")
+            raise ValueError("mmr_data missing 'data' key")
 
         current = mmr_data["data"].get("current", {})
+        if not current:
+            logger.warning("MMR data has no 'current' field")
+            raise ValueError("mmr_data missing 'current' field")
+
         games_needed = current.get("games_needed_for_rating", 0)
 
         if games_needed > 0:
             return {"rank": "Unrated", "elo": 0, "games_needed": games_needed}
 
+        rank = current.get("tier", {}).get("name", "Unknown")
+        elo = current.get("rr", 0)
+
+        if rank == "Unknown":
+            logger.warning("Could not determine rank from MMR data")
+
         return {
-            "rank": current.get("tier", {}).get("name", "Unknown"),
-            "elo": current.get("rr", 0),
+            "rank": rank,
+            "elo": elo,
             "games_needed": 0,
         }
 
@@ -457,21 +545,3 @@ class ValorantDataManager:
             "errors": 0,
         }
         logger.info("Reset statistics")
-
-    async def get_match_details(
-        self, match_id: str, force_refresh: bool = False
-    ) -> Dict:
-        """
-        Get detailed information for a specific match.
-
-        Args:
-            match_id: Match ID
-            force_refresh: Force bypass cache
-
-        Returns:
-            Dict with detailed match data including rounds and kill events
-        """
-        cache_key = f"match_details_{match_id}"
-        url = f"{self.API_BASE}/v2/match/{match_id}"
-
-        return await self._fetch_api(url, cache_key, "match_details", force_refresh)

@@ -8,9 +8,10 @@ from dotenv import load_dotenv
 
 from database import DatabaseManager
 from logger import setup_logger
-from utils.valorant_helpers import load_cached_players_from_db
+from utils.valorant_player_cache import PlayerCacheManager
 from utils.osrs_data_manager import OSRSDataManager
 from utils.valorant_data_manager import ValorantDataManager
+from utils.valorant_helpers import load_cached_players_from_db
 
 # Load environment variables from .env file
 load_dotenv()
@@ -30,7 +31,7 @@ class MyBot(commands.Bot):
         self.database = None
         self.invite_link = os.getenv("INVITE_LINK")
         self.active_blackjack_players = set()
-        self.valorant_players = {}
+        self.valorant_players = PlayerCacheManager()
         self.osrs_data = OSRSDataManager(self)
         self.valorant_data = ValorantDataManager(self)
 
@@ -94,9 +95,12 @@ class MyBot(commands.Bot):
         )
         activity = discord.Game(name="Butterbot")
         await self.change_presence(status=discord.Status.online, activity=activity)
-        self.valorant_players = await load_cached_players_from_db(
-            self.database.players_db
-        )
+
+        # Load cached players into thread-safe manager
+        cached_players = await load_cached_players_from_db(self.database.players_db)
+        await self.valorant_players.batch_set(cached_players)
+        self.logger.info(f"Loaded {len(cached_players)} Valorant players into cache")
+
         await self.osrs_data.initialize()
         await self.load_cogs()
 

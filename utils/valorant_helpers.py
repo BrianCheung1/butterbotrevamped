@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Tuple
 
 import discord
 from constants.valorant_config import RANK_ORDER
@@ -56,27 +56,92 @@ def parse_season(season_code: str):
         return (0, 0)
 
 
+def parse_player_rank(current_data: dict) -> Tuple[str, int, int]:
+    """
+    Parse player rank information from current MMR data.
+
+    FIXED: Centralized utility function to avoid duplication.
+
+    Args:
+        current_data: Current player data dict from API
+
+    Returns:
+        Tuple of (rank_name, current_rr, games_needed)
+
+    Raises:
+        ValueError: If current_data is invalid or missing required fields
+    """
+    if not current_data:
+        raise ValueError("current_data cannot be None or empty")
+
+    games_needed = current_data.get("games_needed_for_rating", 0)
+
+    if games_needed > 0:
+        return "Unrated", 0, games_needed
+
+    try:
+        rank = current_data.get("tier", {}).get("name", "Unknown")
+        rr = current_data.get("rr", 0)
+
+        if rank == "Unknown":
+            logger.warning("Could not determine rank from current data")
+
+        return rank, rr, 0
+    except (KeyError, TypeError) as e:
+        logger.warning(f"Error parsing player rank: {e}")
+        raise ValueError(f"Invalid current_data structure: {e}")
+
+
 async def load_cached_players_from_db(db):
-    """Load cached players from the database on bot startup."""
+    """
+    Load cached players from the database on bot startup.
+
+    FIXED: Returns dict with (name, tag) tuple keys for batch_set().
+
+    Args:
+        db: Database manager instance
+
+    Returns:
+        Dict mapping (name, tag) -> {rank, elo, ...}
+    """
     mmr_data = await db.get_all_player_mmr()
     logger.info(f"Loaded {len(mmr_data)} Valorant players from DB.")
-    return {(d["name"], d["tag"]): d for d in mmr_data}
+
+    # Return as dict with tuple keys for batch_set()
+    return {
+        (d["name"], d["tag"]): {
+            "rank": d["rank"],
+            "elo": d["elo"],
+        }
+        for d in mmr_data
+    }
 
 
 async def name_autocomplete(interaction: discord.Interaction, current: str):
     """Autocomplete for player names from cached player list."""
     bot = interaction.client
-    if not hasattr(bot, "valorant_players") or not bot.valorant_players:
+
+    # Use thread-safe cache manager
+    if not hasattr(bot, "valorant_players"):
         return []
 
-    unique_names = sorted(
-        set(
-            name
-            for name, tag in bot.valorant_players.keys()
-            if name.lower().startswith(current.lower())
+    try:
+        all_players = await bot.valorant_players.get_all()
+
+        if not all_players:
+            return []
+
+        unique_names = sorted(
+            set(
+                name
+                for name, tag in all_players.keys()
+                if name.lower().startswith(current.lower())
+            )
         )
-    )
-    return [Choice(name=n, value=n) for n in unique_names[:25]]
+        return [Choice(name=n, value=n) for n in unique_names[:25]]
+    except Exception as e:
+        logger.warning(f"Error in name_autocomplete: {e}")
+        return []
 
 
 async def tag_autocomplete(interaction: discord.Interaction, current: str):
@@ -84,17 +149,24 @@ async def tag_autocomplete(interaction: discord.Interaction, current: str):
     bot = interaction.client
     name = interaction.namespace.name  # what user selected for "name"
 
-    if not hasattr(bot, "valorant_players") or not bot.valorant_players:
+    # Use thread-safe cache manager
+    if not hasattr(bot, "valorant_players") or not name:
         return []
 
-    if not name:  # If no name is selected yet
-        return []
+    try:
+        all_players = await bot.valorant_players.get_all()
 
-    filtered_tags = sorted(
-        {
-            tag
-            for n, tag in bot.valorant_players.keys()
-            if n.lower() == name.lower() and tag.lower().startswith(current.lower())
-        }
-    )
-    return [Choice(name=t, value=t) for t in filtered_tags[:25]]
+        if not all_players:
+            return []
+
+        filtered_tags = sorted(
+            {
+                tag
+                for n, tag in all_players.keys()
+                if n.lower() == name.lower() and tag.lower().startswith(current.lower())
+            }
+        )
+        return [Choice(name=t, value=t) for t in filtered_tags[:25]]
+    except Exception as e:
+        logger.warning(f"Error in tag_autocomplete: {e}")
+        return []
