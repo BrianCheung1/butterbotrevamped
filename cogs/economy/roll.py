@@ -10,76 +10,8 @@ from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
 
 
-class Roll(BaseGameCog):
-    def __init__(self, bot):
-        super().__init__(bot)
-
-    @app_commands.command(name="roll", description="Roll a dice against the dealer")
-    @app_commands.describe(
-        amount="The amount to bet", action="Choose a percentage of your balance"
-    )
-    @app_commands.choices(
-        action=[
-            app_commands.Choice(name="100%", value="100%"),
-            app_commands.Choice(name="75%", value="75%"),
-            app_commands.Choice(name="50%", value="50%"),
-            app_commands.Choice(name="25%", value="25%"),
-        ]
-    )
-    @app_commands.allowed_installs(guilds=True, users=True)
-    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
-    async def roll(
-        self,
-        interaction: discord.Interaction,
-        amount: Optional[app_commands.Range[int, 1, None]] = None,
-        action: Optional[app_commands.Choice[str]] = None,
-    ) -> None:
-        user_id = interaction.user.id
-
-        # Check conflict BEFORE deferring
-        if await self.check_blackjack_conflict(user_id, interaction):
-            return
-
-        await interaction.response.defer()
-
-        # Validate parameters
-        if not action and not amount:
-            await interaction.edit_original_response(
-                content="You must specify an amount or choose a roll option.",
-            )
-            return
-
-        if amount and action:
-            await interaction.edit_original_response(
-                content="You can only choose one option: amount or action."
-            )
-            return
-
-        # SINGLE FETCH - reuse everywhere
-        balance = await self.get_balance(user_id)
-
-        if action and not amount:
-            amount = calculate_percentage_amount(balance, action.value)
-
-        # Pass balance to avoid 2nd fetch
-        if not await self.validate_balance(
-            user_id, amount, interaction, deferred=True, balance=balance
-        ):
-            return
-
-        # Pass balance to avoid 3rd fetch
-        await perform_roll(
-            self.bot,
-            interaction,
-            user_id,
-            amount,
-            action.value if action else None,
-            prev_balance=balance,
-        )
-
-
 async def perform_roll(bot, interaction, user_id, amount, action, prev_balance=None):
-    # Optional fetch only if not provided
+    """Execute a single roll game."""
     if prev_balance is None:
         prev_balance = await bot.database.user_db.get_balance(user_id)
 
@@ -173,6 +105,40 @@ async def perform_roll(bot, interaction, user_id, amount, action, prev_balance=N
     view.message = await interaction.edit_original_response(embed=embed, view=view)
 
 
+class Roll(BaseGameCog):
+    def __init__(self, bot):
+        super().__init__(bot)
+
+    @app_commands.command(name="roll", description="Roll a dice against the dealer")
+    @app_commands.describe(
+        amount="The amount to bet", action="Choose a percentage of your balance"
+    )
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="100%", value="100%"),
+            app_commands.Choice(name="75%", value="75%"),
+            app_commands.Choice(name="50%", value="50%"),
+            app_commands.Choice(name="25%", value="25%"),
+        ]
+    )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+    async def roll(
+        self,
+        interaction: discord.Interaction,
+        amount: Optional[app_commands.Range[int, 1, None]] = None,
+        action: Optional[app_commands.Choice[str]] = None,
+    ) -> None:
+        """Roll command using unified handler."""
+        await self.run_gambling_command(
+            interaction,
+            amount,
+            action.value if action else None,
+            game_func=perform_roll,
+            game_name="Roll",
+        )
+
+
 class RollAgainView(discord.ui.View):
     def __init__(self, bot, user_id, amount, action):
         super().__init__(timeout=300)
@@ -211,7 +177,6 @@ class RollAgainView(discord.ui.View):
             await interaction.edit_original_response(content=error, view=None)
             return
 
-        # Pass balance to avoid extra fetch
         await perform_roll(
             self.bot,
             interaction,

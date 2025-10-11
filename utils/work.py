@@ -3,8 +3,6 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import discord
-
-from utils.buffs import apply_buff
 from utils.equips import format_tool_display_name, get_tool_bonus
 from utils.formatting import format_number
 
@@ -51,6 +49,14 @@ class FishingResult:
     fishingrod_name: Optional[str]
     buff_expiry_str: Optional[str]
     leveled_up: bool
+
+
+def apply_buff(base_value: float, buffs: dict, buff_key: str) -> float:
+    """Apply buff multiplier to a value."""
+    buff = buffs.get(buff_key)
+    if not buff:
+        return base_value
+    return base_value * buff.get("multiplier", 1.0)
 
 
 def calculate_value_bonuses(base_value, level, tool_bonus_pct, pet_bonus_pct=0.0):

@@ -1,8 +1,5 @@
-# utils/base_cog.py
-
 import discord
 from discord.ext import commands
-
 from utils.balance_helper import validate_amount
 from utils.formatting import format_number
 
@@ -24,10 +21,6 @@ class BaseGameCog(commands.Cog):
         """
         Check if user is in a Blackjack game.
         Returns True if conflict exists (and sends error message), False otherwise.
-
-        Usage:
-            if await self.check_blackjack_conflict(user_id, interaction):
-                return
         """
         if user_id not in self.bot.active_blackjack_players:
             return False
@@ -46,7 +39,7 @@ class BaseGameCog(commands.Cog):
         amount: int,
         interaction: discord.Interaction,
         deferred: bool = False,
-        balance: int = None,  # <-- NEW PARAMETER
+        balance: int = None,
     ) -> bool:
         """
         Validate that user has enough balance for the amount.
@@ -105,7 +98,7 @@ class BaseGameCog(commands.Cog):
             new_balance: Balance after game
             amount: Amount wagered
             color: Embed color
-            footer_text: Footer text (for stats like wins/losses/ties)
+            footer_text: Footer text (for stats)
             **extra_fields: Additional fields (name=value pairs)
         """
         embed = discord.Embed(title=title, description=description, color=color)
@@ -195,6 +188,89 @@ class BaseGameCog(commands.Cog):
             return False
 
         return True
+
+    # ============ UNIFIED GAMBLING COMMAND HANDLER ============
+
+    async def run_gambling_command(
+        self,
+        interaction: discord.Interaction,
+        amount: int,
+        action: str,
+        game_func,
+        game_name: str = "Game",
+        balance: int = None,
+    ) -> None:
+        """
+        Unified handler for gambling commands (roll, slots, etc.).
+
+        Handles:
+        - Parameter validation (amount vs action)
+        - Balance fetching & validation
+        - Deferred response
+        - Game execution
+
+        Args:
+            interaction: Discord interaction
+            amount: Optional specific bet amount
+            action: Optional percentage action (100%, 75%, 50%, 25%)
+            game_func: Async function(bot, interaction, user_id, amount, action, prev_balance)
+                      that executes the game
+            game_name: Game name for error messages
+            balance: Optional pre-fetched balance (avoids extra DB call)
+
+        Usage in a command:
+            await self.run_gambling_command(
+                interaction, amount, action,
+                game_func=perform_roll,
+                game_name="Roll"
+            )
+        """
+        from utils.balance_helper import calculate_percentage_amount
+
+        user_id = interaction.user.id
+
+        # Check blackjack conflict BEFORE deferring
+        if await self.check_blackjack_conflict(user_id, interaction):
+            return
+
+        await interaction.response.defer()
+
+        # Validate parameters
+        if not action and not amount:
+            await interaction.edit_original_response(
+                content=f"You must specify an amount or choose a {game_name.lower()} option.",
+            )
+            return
+
+        if amount and action:
+            await interaction.edit_original_response(
+                content="You can only choose one option: amount or action."
+            )
+            return
+
+        # Fetch balance once if not provided
+        if balance is None:
+            balance = await self.get_balance(user_id)
+
+        # Calculate amount from action or use provided amount
+        if action and not amount:
+            amount = calculate_percentage_amount(balance, action)
+
+        # Validate balance
+        if not await self.validate_balance(
+            user_id, amount, interaction, deferred=True, balance=balance
+        ):
+            return
+
+        # Execute game with pre-fetched balance
+        await game_func(
+            self.bot,
+            interaction,
+            user_id,
+            amount,
+            action,
+            prev_balance=balance,
+        )
 
     # ============ LOGGING/UTILITY ============
 

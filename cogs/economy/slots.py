@@ -10,75 +10,8 @@ from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
 
 
-class Slots(BaseGameCog):
-    def __init__(self, bot):
-        super().__init__(bot)
-
-    @app_commands.command(name="slots", description="Play a game of slots")
-    @app_commands.describe(
-        amount="The amount to bet", action="Choose a percentage of your balance"
-    )
-    @app_commands.choices(
-        action=[
-            app_commands.Choice(name="100%", value="100%"),
-            app_commands.Choice(name="75%", value="75%"),
-            app_commands.Choice(name="50%", value="50%"),
-            app_commands.Choice(name="25%", value="25%"),
-        ]
-    )
-    @app_commands.allowed_installs(guilds=True, users=True)
-    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
-    async def slots(
-        self,
-        interaction: discord.Interaction,
-        amount: Optional[app_commands.Range[int, 1, None]] = None,
-        action: Optional[app_commands.Choice[str]] = None,
-    ) -> None:
-        user_id = interaction.user.id
-
-        # Check conflict BEFORE deferring
-        if await self.check_blackjack_conflict(user_id, interaction):
-            return
-
-        await interaction.response.defer()
-
-        if not action and not amount:
-            await interaction.edit_original_response(
-                content="You must specify an amount or choose a slots option.",
-            )
-            return
-
-        if amount and action:
-            await interaction.edit_original_response(
-                content="You can only choose one option: amount or action."
-            )
-            return
-
-        # SINGLE FETCH - reuse everywhere
-        balance = await self.get_balance(user_id)
-
-        if action and not amount:
-            amount = calculate_percentage_amount(balance, action.value)
-
-        # Pass balance to avoid 2nd fetch
-        if not await self.validate_balance(
-            user_id, amount, interaction, deferred=True, balance=balance
-        ):
-            return
-
-        # Pass balance to avoid 3rd fetch
-        await perform_slots(
-            self.bot,
-            interaction,
-            user_id,
-            amount,
-            action.value if action else None,
-            prev_balance=balance,
-        )
-
-
 async def perform_slots(bot, interaction, user_id, amount, action, prev_balance=None):
-    # Optional fetch only if not provided
+    """Execute a single slots game."""
     if prev_balance is None:
         prev_balance = await bot.database.user_db.get_balance(user_id)
 
@@ -125,14 +58,11 @@ async def perform_slots(bot, interaction, user_id, amount, action, prev_balance=
         win_status = True
     elif max_special_fruits >= 3:
         multiplier = fruit_rewards.get(max_special_fruits, 0)
-
-        # Find the emoji with max count
         emoji = next(
             emoji
             for emoji, count in special_fruits_count.items()
             if count == max_special_fruits
         )
-
         result = f"{max_special_fruits} {emoji} fruits! You win! ${format_number(amount * multiplier)}"
         color = discord.Color.green()
         final_balance = prev_balance + amount * multiplier
@@ -175,6 +105,40 @@ async def perform_slots(bot, interaction, user_id, amount, action, prev_balance=
     )
     view.message_id = view.message.id
     view.channel = interaction.channel
+
+
+class Slots(BaseGameCog):
+    def __init__(self, bot):
+        super().__init__(bot)
+
+    @app_commands.command(name="slots", description="Play a game of slots")
+    @app_commands.describe(
+        amount="The amount to bet", action="Choose a percentage of your balance"
+    )
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="100%", value="100%"),
+            app_commands.Choice(name="75%", value="75%"),
+            app_commands.Choice(name="50%", value="50%"),
+            app_commands.Choice(name="25%", value="25%"),
+        ]
+    )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+    async def slots(
+        self,
+        interaction: discord.Interaction,
+        amount: Optional[app_commands.Range[int, 1, None]] = None,
+        action: Optional[app_commands.Choice[str]] = None,
+    ) -> None:
+        """Slots command using unified handler."""
+        await self.run_gambling_command(
+            interaction,
+            amount,
+            action.value if action else None,
+            game_func=perform_slots,
+            game_name="Slots",
+        )
 
 
 class SlotsAgainView(discord.ui.View):
@@ -221,7 +185,6 @@ class SlotsAgainView(discord.ui.View):
             await interaction.edit_original_response(content=error, view=None)
             return
 
-        # Pass balance to avoid extra fetch
         await perform_slots(
             self.bot,
             interaction,
