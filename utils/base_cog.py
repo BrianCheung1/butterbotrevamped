@@ -46,18 +46,17 @@ class BaseGameCog(commands.Cog):
         amount: int,
         interaction: discord.Interaction,
         deferred: bool = False,
+        balance: int = None,  # <-- NEW PARAMETER
     ) -> bool:
         """
         Validate that user has enough balance for the amount.
-        Returns True if valid, False if not (sends error message).
 
         Args:
-            user_id: Discord user ID
-            amount: Amount to validate
-            interaction: Discord interaction
-            deferred: If True, uses edit_original_response; if False, uses response.send_message
+            balance: If provided, skips DB call. If None, fetches from DB.
         """
-        balance = await self.bot.database.user_db.get_balance(user_id)
+        if balance is None:
+            balance = await self.bot.database.user_db.get_balance(user_id)
+
         error = validate_amount(amount, balance)
 
         if error:

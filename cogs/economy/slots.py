@@ -7,6 +7,7 @@ from constants.game_config import GameEventType
 from discord import app_commands
 from utils.balance_helper import calculate_percentage_amount, validate_amount
 from utils.base_cog import BaseGameCog
+from utils.formatting import format_number
 
 
 class Slots(BaseGameCog):
@@ -33,10 +34,9 @@ class Slots(BaseGameCog):
         amount: Optional[app_commands.Range[int, 1, None]] = None,
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
-
         user_id = interaction.user.id
 
-        # Check blackjack conflict (NEW: using base method)
+        # Check conflict BEFORE deferring
         if await self.check_blackjack_conflict(user_id, interaction):
             return
 
@@ -47,36 +47,46 @@ class Slots(BaseGameCog):
                 content="You must specify an amount or choose a slots option.",
             )
             return
+
         if amount and action:
             await interaction.edit_original_response(
                 content="You can only choose one option: amount or action."
             )
             return
 
-        balance = await self.get_balance(user_id)  # NEW: using base method
+        # SINGLE FETCH - reuse everywhere
+        balance = await self.get_balance(user_id)
 
         if action and not amount:
             amount = calculate_percentage_amount(balance, action.value)
 
-        # Validate balance (NEW: using base method)
-        if not await self.validate_balance(user_id, amount, interaction, deferred=True):
+        # Pass balance to avoid 2nd fetch
+        if not await self.validate_balance(
+            user_id, amount, interaction, deferred=True, balance=balance
+        ):
             return
 
+        # Pass balance to avoid 3rd fetch
         await perform_slots(
             self.bot,
             interaction,
             user_id,
             amount,
             action.value if action else None,
+            prev_balance=balance,
         )
 
 
-async def perform_slots(bot, interaction, user_id, amount, action):
-    prev_balance = await bot.database.user_db.get_balance(user_id)
+async def perform_slots(bot, interaction, user_id, amount, action, prev_balance=None):
+    # Optional fetch only if not provided
+    if prev_balance is None:
+        prev_balance = await bot.database.user_db.get_balance(user_id)
+
     stats_raw = await bot.database.game_db.get_user_game_stats(user_id)
     stats = defaultdict(int, stats_raw.get("game_stats", {}))
     stats["slots_played"] += 1
 
+    # Board setup
     EMOJIS = ["🍎", "🍊", "🍐", "🍋", "🍉", "🍇", "🍓", "🍒"]
     SPECIAL_EMOJIS = ["🍉", "🍒", "🍐"]
     board = random.choices(EMOJIS, k=9)
@@ -84,6 +94,7 @@ async def perform_slots(bot, interaction, user_id, amount, action):
         " ".join(board[i : i + 3]) for i in range(0, len(board), 3)
     )
 
+    # Check for winning combinations
     winning_combinations = [
         [0, 1, 2],
         [3, 4, 5],
@@ -103,9 +114,10 @@ async def perform_slots(bot, interaction, user_id, amount, action):
     # Fruit rewards lookup
     fruit_rewards = {3: 1, 4: 5, 5: 35, 6: 100, 7: 1000, 8: 10000, 9: 100000}
 
+    # Determine outcome
     if three_line_win:
         multiplier = 2
-        result = f"3 in a line! You win! ${amount * 2:,}"
+        result = f"3 in a line! You win! ${format_number(amount * 2)}"
         color = discord.Color.green()
         final_balance = prev_balance + amount * 2
         outcome = amount * 2
@@ -114,33 +126,30 @@ async def perform_slots(bot, interaction, user_id, amount, action):
     elif max_special_fruits >= 3:
         multiplier = fruit_rewards.get(max_special_fruits, 0)
 
-        # Find the emoji corresponding to the max count of special fruits
+        # Find the emoji with max count
         emoji = next(
             emoji
             for emoji, count in special_fruits_count.items()
             if count == max_special_fruits
         )
 
-        result = (
-            f"{max_special_fruits} {emoji} fruits! You win! ${amount * multiplier:,}"
-        )
+        result = f"{max_special_fruits} {emoji} fruits! You win! ${format_number(amount * multiplier)}"
         color = discord.Color.green()
         final_balance = prev_balance + amount * multiplier
         outcome = amount * multiplier
         stats["slots_won"] += 1
         win_status = True
     else:
+        multiplier = 1
         result = "No Matches"
         color = discord.Color.red()
         final_balance = prev_balance - amount
-        stats["slots_lost"] += 1
         outcome = -amount
+        stats["slots_lost"] += 1
         win_status = False
 
-    # Update the user's balance and game stats
+    # Batch DB updates
     await bot.database.user_db.increment_balance(user_id, outcome)
-
-    # Store the win status correctly for the event
     await bot.database.game_db.set_user_game_stats(
         user_id,
         GameEventType.SLOT,
@@ -148,7 +157,7 @@ async def perform_slots(bot, interaction, user_id, amount, action):
         (amount * multiplier if win_status else amount),
     )
 
-    # NEW: Using base method to create embed with footer
+    # Create embed
     cog = bot.cogs.get("Slots")
     embed = cog.create_balance_embed(
         title="🎰 Slots",
@@ -180,19 +189,22 @@ class SlotsAgainView(discord.ui.View):
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
+
         if hasattr(self, "message_id") and self.channel:
             try:
                 message = await self.channel.fetch_message(self.message_id)
                 await message.edit(view=self)
             except discord.HTTPException:
-                self.bot.logger.error("slots message expired or missing")
+                self.bot.logger.debug("Slots message expired or timed out")
 
     @discord.ui.button(label="Spin Again", style=discord.ButtonStyle.green)
     async def spin_again(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         if interaction.user.id != self.user_id:
-            await interaction.followup.send(content="You can't use this button.")
+            await interaction.followup.send(
+                content="You can't use this button.", ephemeral=True
+            )
             return
 
         await interaction.response.defer()
@@ -209,7 +221,15 @@ class SlotsAgainView(discord.ui.View):
             await interaction.edit_original_response(content=error, view=None)
             return
 
-        await perform_slots(self.bot, interaction, self.user_id, amount, self.action)
+        # Pass balance to avoid extra fetch
+        await perform_slots(
+            self.bot,
+            interaction,
+            self.user_id,
+            amount,
+            self.action,
+            prev_balance=current_balance,
+        )
 
 
 async def setup(bot):

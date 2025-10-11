@@ -7,6 +7,7 @@ from constants.game_config import GameEventType
 from discord import app_commands
 from utils.balance_helper import calculate_percentage_amount, validate_amount
 from utils.base_cog import BaseGameCog
+from utils.formatting import format_number
 
 
 class Roll(BaseGameCog):
@@ -35,42 +36,52 @@ class Roll(BaseGameCog):
     ) -> None:
         user_id = interaction.user.id
 
+        # Check conflict BEFORE deferring
         if await self.check_blackjack_conflict(user_id, interaction):
             return
 
         await interaction.response.defer()
 
-        # Resolve amount (existing logic)
+        # Validate parameters
         if not action and not amount:
             await interaction.edit_original_response(
                 content="You must specify an amount or choose a roll option.",
             )
             return
+
         if amount and action:
             await interaction.edit_original_response(
                 content="You can only choose one option: amount or action."
             )
             return
 
+        # SINGLE FETCH - reuse everywhere
         balance = await self.get_balance(user_id)
 
         if action and not amount:
             amount = calculate_percentage_amount(balance, action.value)
 
-        if not await self.validate_balance(user_id, amount, interaction, deferred=True):
+        # Pass balance to avoid 2nd fetch
+        if not await self.validate_balance(
+            user_id, amount, interaction, deferred=True, balance=balance
+        ):
             return
 
+        # Pass balance to avoid 3rd fetch
         await perform_roll(
             self.bot,
             interaction,
             user_id,
             amount,
             action.value if action else None,
+            prev_balance=balance,
         )
 
 
-async def perform_roll(bot, interaction, user_id, amount, action):
-    prev_balance = await bot.database.user_db.get_balance(user_id)
+async def perform_roll(bot, interaction, user_id, amount, action, prev_balance=None):
+    # Optional fetch only if not provided
+    if prev_balance is None:
+        prev_balance = await bot.database.user_db.get_balance(user_id)
 
     MAX_ROLL = 100
     MIN_ROLL = 0
@@ -85,36 +96,35 @@ async def perform_roll(bot, interaction, user_id, amount, action):
     stats["rolls_won"] = stats.get("rolls_won", 0)
     stats["rolls_lost"] = stats.get("rolls_lost", 0)
 
+    # Determine outcome
     if user_roll > dealer_roll:
         result = "You win!"
         color = discord.Color.green()
         final_balance = prev_balance + amount
         outcome = amount
         stats["rolls_won"] += 1
-        await bot.database.game_db.set_user_game_stats(
-            user_id, GameEventType.ROLL, True, amount
-        )
+        win_status = True
     elif user_roll < dealer_roll:
         result = "You lose!"
         color = discord.Color.red()
         final_balance = prev_balance - amount
         outcome = -amount
         stats["rolls_lost"] += 1
-        await bot.database.game_db.set_user_game_stats(
-            user_id, GameEventType.ROLL, False, amount
-        )
+        win_status = False
     else:
         result = "It's a tie!"
         color = discord.Color.gold()
         final_balance = prev_balance
         outcome = 0
-        await bot.database.game_db.set_user_game_stats(
-            user_id, GameEventType.ROLL, None, 0
-        )
+        win_status = None
 
     tied_count = stats["rolls_played"] - stats["rolls_won"] - stats["rolls_lost"]
 
+    # Batch DB updates
     await bot.database.user_db.increment_balance(user_id, outcome)
+    await bot.database.game_db.set_user_game_stats(
+        user_id, GameEventType.ROLL, win_status, amount
+    )
     await bot.database.game_db.log_roll_history(
         user_id=user_id,
         user_roll=user_roll,
@@ -127,6 +137,7 @@ async def perform_roll(bot, interaction, user_id, amount, action):
         amount=amount,
     )
 
+    # Create embed
     cog = bot.cogs.get("Roll")
     embed = cog.create_balance_embed(
         title="🎲 Dice Roll Result",
@@ -138,9 +149,8 @@ async def perform_roll(bot, interaction, user_id, amount, action):
         footer_text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count} | Total Played: {stats['rolls_played']}",
     )
 
-    # Fetch last 10 roll results
+    # Add roll history
     history = await bot.database.game_db.get_roll_history(user_id)
-
     if history:
         history_lines = []
         for entry in history:
@@ -152,7 +162,7 @@ async def perform_roll(bot, interaction, user_id, amount, action):
             dt = datetime.fromisoformat(entry["timestamp"]).replace(tzinfo=timezone.utc)
             unix_timestamp = int(dt.timestamp())
             history_lines.append(
-                f"{emoji} Bet: ${entry['amount']:,} — <t:{unix_timestamp}:R>"
+                f"{emoji} Bet: ${format_number(entry['amount'])} — <t:{unix_timestamp}:R>"
             )
 
         embed.add_field(
@@ -176,14 +186,15 @@ class RollAgainView(discord.ui.View):
             await self.message.edit(content="Roll game timed out.", view=None)
         except discord.NotFound:
             self.bot.logger.debug("Message not found when disabling buttons.")
-            pass
 
     @discord.ui.button(label="Roll Again", style=discord.ButtonStyle.green)
     async def roll_again(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         if interaction.user.id != self.user_id:
-            await interaction.followup.send(content="You can't use this button.")
+            await interaction.followup.send(
+                content="You can't use this button.", ephemeral=True
+            )
             return
 
         await interaction.response.defer()
@@ -200,7 +211,15 @@ class RollAgainView(discord.ui.View):
             await interaction.edit_original_response(content=error, view=None)
             return
 
-        await perform_roll(self.bot, interaction, self.user_id, amount, self.action)
+        # Pass balance to avoid extra fetch
+        await perform_roll(
+            self.bot,
+            interaction,
+            self.user_id,
+            amount,
+            self.action,
+            prev_balance=current_balance,
+        )
 
 
 async def setup(bot):
