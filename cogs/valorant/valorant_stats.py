@@ -219,7 +219,7 @@ class ValorantStats(commands.Cog):
 
                 name = player.get("name", "Unknown")
                 tag = player.get("tag", "")
-                puuid = stats.get("puuid", "")
+                puuid = player.get("puuid", "")
 
                 is_me = puuid == requesting_player_puuid
                 prefix = "**➤**" if is_me else "  "
@@ -289,10 +289,8 @@ class ValorantStats(commands.Cog):
 
             # Build detailed footer with stats
             total_rounds = red_score + blue_score
-            total_kills = sum(p.get("stats", {}).get("kills", 0) for p in all_players)
-            avg_kda = total_kills / len(all_players) if all_players else 0
 
-            footer_text = f"➤ = You | 🩸 = First Bloods | 💀 = First Deaths | Total Rounds: {total_rounds} | Avg K/R: {avg_kda:.1f}"
+            footer_text = f"➤ = You | 🩸 = First Bloods | 💀 = First Deaths | Total Rounds: {total_rounds}"
             embed.set_footer(text=footer_text)
 
             return embed
