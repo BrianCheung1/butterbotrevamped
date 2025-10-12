@@ -2,16 +2,16 @@ import os
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from utils.base_cog import BaseGameCog
 from utils.checks import is_owner_or_mod_check
 from utils.formatting import format_number
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 
 
-class Balance(commands.Cog):
+class Balance(BaseGameCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
 
     @app_commands.command(
         name="balance", description="Check your balance or someone else's."
@@ -29,7 +29,7 @@ class Balance(commands.Cog):
         :param user: The user whose balance to check. If None, defaults to the command invoker.
         """
         user = user or interaction.user
-        balance = await self.bot.database.user_db.get_balance(user.id)
+        balance = await self.get_balance(user.id)
 
         embed = discord.Embed(
             title=f"{user.name}'s Balance",
@@ -61,6 +61,12 @@ class Balance(commands.Cog):
             return
 
         await self.bot.database.user_db.set_balance(user.id, amount)
+
+        # Log admin action
+        self.log_transaction(
+            interaction.user.id, "ADMIN_SET_BALANCE", amount, f"Target: {user.id}"
+        )
+
         await interaction.response.send_message(
             f"✅ Set {user.mention}'s balance to ${format_number(amount)}."
         )

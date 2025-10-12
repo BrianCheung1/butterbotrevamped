@@ -3,6 +3,7 @@ from discord.ext import commands
 from utils.balance_helper import validate_amount
 from utils.formatting import format_number
 from logger import setup_logger
+from typing import Tuple
 
 logger = setup_logger("BaseGameCog")
 
@@ -66,6 +67,57 @@ class BaseGameCog(commands.Cog):
 
         return True
 
+    async def validate_bank_action_params(
+        self,
+        amount: int,
+        action: str,
+        interaction: discord.Interaction,
+        deferred: bool = True,
+    ) -> bool:
+        """
+        Validate that exactly one of amount or action is provided for bank operations.
+
+        Checks:
+        - At least one of amount or action is provided
+        - Not both amount and action are provided
+
+        Args:
+            amount: Optional specific amount
+            action: Optional percentage action (100%, 75%, 50%, 25%)
+            interaction: Discord interaction
+            deferred: Whether response is already deferred
+
+        Returns:
+            bool: True if valid, False otherwise (error message sent)
+
+        Usage:
+            if not await self.validate_bank_action_params(amount, action, interaction):
+                return
+        """
+        if not action and not amount:
+            send_method = (
+                interaction.edit_original_response
+                if deferred
+                else interaction.response.send_message
+            )
+            await send_method(
+                content="You must specify an amount or choose a deposit/withdrawal option.",
+            )
+            return False
+
+        if amount and action:
+            send_method = (
+                interaction.edit_original_response
+                if deferred
+                else interaction.response.send_message
+            )
+            await send_method(
+                content="You can only choose one option: amount or action."
+            )
+            return False
+
+        return True
+
     async def get_balance(self, user_id: int) -> int:
         """Fetch user's current balance."""
         return await self.bot.database.user_db.get_balance(user_id)
@@ -77,6 +129,26 @@ class BaseGameCog(commands.Cog):
     async def add_balance(self, user_id: int, amount: int) -> int:
         """Add amount to user's balance. Returns new balance."""
         return await self.bot.database.user_db.increment_balance(user_id, amount)
+
+    async def transfer_balance(
+        self,
+        from_user_id: int,
+        to_user_id: int,
+        amount: int,
+        log_action: str = "TRANSFER",
+    ) -> Tuple[int, int]:
+        """
+        Transfer balance from one user to another.
+
+        Returns:
+            (from_user_new_balance, to_user_new_balance)
+        """
+        from_balance = await self.deduct_balance(from_user_id, amount)
+        to_balance = await self.add_balance(to_user_id, amount)
+
+        self.log_transaction(from_user_id, log_action, amount, f"To: {to_user_id}")
+
+        return from_balance, to_balance
 
     # ============ GAME RESULT HELPERS ============
 

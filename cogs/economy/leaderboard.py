@@ -4,7 +4,7 @@ from typing import List, Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
 from logger import setup_logger
 
@@ -129,9 +129,9 @@ class LeaderboardView(discord.ui.View):
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
 
-class Leaderboard(commands.Cog):
+class Leaderboard(BaseGameCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
         self.leaderboard_types = [
             "balance",
             "mining_level",
@@ -157,7 +157,7 @@ class Leaderboard(commands.Cog):
             wait_seconds = (next_midnight - now).total_seconds()
 
             logger.info(
-                f"leeping {wait_seconds:.0f}s until next 12:00 AM UTC broadcast"
+                f"Sleeping {wait_seconds:.0f}s until next 12:00 AM UTC broadcast"
             )
 
             await asyncio.sleep(wait_seconds)
@@ -198,7 +198,7 @@ class Leaderboard(commands.Cog):
                 try:
                     await channel.send(embed=embed, view=view)
                 except Exception as e:
-                    print(
+                    logger.error(
                         f"Failed to send leaderboard to channel {channel_id} in guild {guild.id}: {e}"
                     )
 

@@ -4,18 +4,19 @@ from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
-from utils.balance_helper import calculate_percentage_amount, validate_amount
+from utils.base_cog import BaseGameCog
+from utils.balance_helper import calculate_percentage_amount
 from utils.channels import broadcast_embed_to_guilds
+from utils.embed_builders import build_bank_embed, build_transaction_embed
 from utils.formatting import format_number
 from logger import setup_logger
 
 logger = setup_logger("Bank")
 
 
-class Bank(commands.Cog):
+class Bank(BaseGameCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
         # Start background interest loop manually
         self.daily_interest_task = self.bot.loop.create_task(self.daily_interest_loop())
 
@@ -93,34 +94,8 @@ class Bank(commands.Cog):
             f"💸 Daily interest applied for {user_count} users at 12:00 AM UTC."
         )
 
-    def build_bank_embed(
-        self, user: discord.User, bank_stats: dict, bank_balance: int
-    ) -> discord.Embed:
-        return discord.Embed(
-            title=f"{user.name}'s Bank Balance",
-            description=(
-                f"🏦 Bank Balance: ${format_number(bank_balance)}\n"
-                f"🏦 Bank Capacity: ${format_number(bank_stats['bank_cap'])}\n"
-                f"🏦 Bank Level: {bank_stats['bank_level']}"
-            ),
-            color=discord.Color.blue(),
-        )
-
-    def build_transaction_embed(
-        self, action: str, amount: int, new_bank: int, new_wallet: int
-    ) -> discord.Embed:
-        return discord.Embed(
-            title=f"{action} Successful",
-            description=(
-                f"{action}ed ${format_number(amount)}.\n"
-                f"🏦 Bank: ${format_number(new_bank)}\n"
-                f"💰 Wallet: ${format_number(new_wallet)}"
-            ),
-            color=discord.Color.green(),
-        )
-
     async def get_user_stats(self, user_id: int) -> tuple[int, dict]:
-        balance = await self.bot.database.user_db.get_balance(user_id)
+        balance = await self.get_balance(user_id)
         bank_raw = await self.bot.database.bank_db.get_user_bank_stats(user_id)
         bank_stats = dict(bank_raw["bank_stats"])
         return balance, bank_stats
@@ -133,7 +108,7 @@ class Bank(commands.Cog):
         bank_balance = await self.bot.database.bank_db.get_bank_balance(user.id)
         _, bank_stats = await self.get_user_stats(user.id)
 
-        embed = self.build_bank_embed(user, bank_stats, bank_balance)
+        embed = build_bank_embed(user, bank_stats, bank_balance)
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="deposit", description="Deposit money into your bank.")
@@ -156,31 +131,28 @@ class Bank(commands.Cog):
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
         user_id = interaction.user.id
-        if user_id in self.bot.active_blackjack_players:
-            await interaction.response.send_message(
-                "You are in a Blackjack game! Please finish the game first",
-                ephemeral=True,
-            )
-            return
-        await interaction.response.defer()
-        if not action and not amount:
-            await interaction.edit_original_response(
-                content="You must specify an amount or choose a deposit option.",
-            )
+
+        # Check blackjack conflict BEFORE deferring
+        if await self.check_blackjack_conflict(user_id, interaction):
             return
 
-        if amount and action:
-            await interaction.edit_original_response(
-                content="You can only choose one option: amount or action."
-            )
+        await interaction.response.defer()
+
+        # Validate parameters
+        if not await self.validate_bank_action_params(amount, action, interaction):
             return
+
         balance, bank_stats = await self.get_user_stats(user_id)
         available_space = bank_stats["bank_cap"] - bank_stats["bank_balance"]
 
+        # Calculate amount
         if action and not amount:
             amount_to_deposit = calculate_percentage_amount(balance, action.value)
-        elif amount and not action:
+        else:
             amount_to_deposit = amount
+
+        # Validate amount
+        from utils.balance_helper import validate_amount
 
         error = validate_amount(amount_to_deposit, balance)
         if error:
@@ -197,13 +169,21 @@ class Bank(commands.Cog):
             )
             return
 
-        # Update DB
-        await self.bot.database.user_db.increment_balance(user_id, -amount_to_deposit)
+        # Update balances
+        await self.deduct_balance(user_id, amount_to_deposit)
         await self.bot.database.bank_db.set_bank_balance(
             user_id, bank_stats["bank_balance"] + amount_to_deposit
         )
 
-        embed = self.build_transaction_embed(
+        # Log transaction
+        self.log_transaction(
+            user_id,
+            "DEPOSIT",
+            amount_to_deposit,
+            f"Bank capacity: {bank_stats['bank_cap']}",
+        )
+
+        embed = build_transaction_embed(
             action="Deposit",
             amount=amount_to_deposit,
             new_bank=bank_stats["bank_balance"] + amount_to_deposit,
@@ -231,43 +211,49 @@ class Bank(commands.Cog):
         action: Optional[app_commands.Choice[str]] = None,
     ) -> None:
         user_id = interaction.user.id
-        if user_id in self.bot.active_blackjack_players:
-            await interaction.response.send_message(
-                "You are in a Blackjack game! Please finish the game first",
-                ephemeral=True,
-            )
+
+        # Check blackjack conflict BEFORE deferring
+        if await self.check_blackjack_conflict(user_id, interaction):
             return
+
         await interaction.response.defer()
+
+        # Validate parameters
+        if not await self.validate_bank_action_params(amount, action, interaction):
+            return
+
         balance, bank_stats = await self.get_user_stats(user_id)
         bank_balance = bank_stats["bank_balance"]
-        if not action and not amount:
-            await interaction.edit_original_response(
-                content="You must specify an amount or choose a withdraw option.",
-            )
-            return
 
-        if amount and action:
-            await interaction.edit_original_response(
-                content="You can only choose one option: amount or action."
-            )
-            return
-
+        # Calculate amount
         if action and not amount:
             amount_to_withdraw = calculate_percentage_amount(bank_balance, action.value)
-        elif amount and not action:
+        else:
             amount_to_withdraw = amount
+
+        # Validate amount
+        from utils.balance_helper import validate_amount
+
         error = validate_amount(amount_to_withdraw, bank_balance)
         if error:
             await interaction.edit_original_response(content=error)
             return
 
-        # Update DB
+        # Update balances
         await self.bot.database.bank_db.set_bank_balance(
             user_id, bank_balance - amount_to_withdraw
         )
-        await self.bot.database.user_db.increment_balance(user_id, amount_to_withdraw)
+        await self.add_balance(user_id, amount_to_withdraw)
 
-        embed = self.build_transaction_embed(
+        # Log transaction
+        self.log_transaction(
+            user_id,
+            "WITHDRAW",
+            amount_to_withdraw,
+            f"Bank capacity: {bank_stats['bank_cap']}",
+        )
+
+        embed = build_transaction_embed(
             action="Withdrawal",
             amount=amount_to_withdraw,
             new_bank=bank_balance - amount_to_withdraw,

@@ -4,15 +4,16 @@ from datetime import timezone
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
 from logger import setup_logger
 
 logger = setup_logger("Daily")
 
 
-class Daily(commands.Cog):
+class Daily(BaseGameCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
         self.reminded_users = set()
         self.streak_reminder_loop.start()
 
@@ -49,7 +50,7 @@ class Daily(commands.Cog):
                 time_until_reset = int(next_reset.timestamp())
 
                 msg = (
-                    f"🕒 You’ve already claimed your daily today! "
+                    f"🕒 You've already claimed your daily today! "
                     f"Come back <t:{time_until_reset}:R> (at <t:{time_until_reset}:t> your time)."
                 )
                 await interaction.response.send_message(msg)
@@ -70,9 +71,7 @@ class Daily(commands.Cog):
         total_reward = daily_base_amount + bonus
 
         # ---------------- Update database ----------------
-        new_balance = await self.bot.database.user_db.increment_balance(
-            user.id, total_reward
-        )
+        new_balance = await self.add_balance(user.id, total_reward)
 
         if reset_streak:
             current_streak = 1
@@ -82,6 +81,11 @@ class Daily(commands.Cog):
         else:
             current_streak = daily_streak + 1
             await self.bot.database.user_db.set_daily(user.id)
+
+        # Log transaction
+        self.log_transaction(
+            user.id, "DAILY", total_reward, f"Streak: {current_streak}"
+        )
 
         # ---------------- Send response ----------------
         embed = discord.Embed(

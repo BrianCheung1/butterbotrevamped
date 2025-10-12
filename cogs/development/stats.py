@@ -8,12 +8,12 @@ from discord.ext import commands
 from utils.checks import is_owner_or_mod_check
 
 
-class Stats(commands.Cog):
+class BotStats(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="stats", description="Show stats of the bot.")
+    @app_commands.command(name="bot-stats", description="Show stats of the bot.")
     @app_commands.check(is_owner_or_mod_check)
     async def stats(self, interaction: discord.Interaction):
         """
@@ -88,4 +88,4 @@ class Stats(commands.Cog):
 
 
 async def setup(bot):
-    await bot.add_cog(Stats(bot))
+    await bot.add_cog(BotStats(bot))
