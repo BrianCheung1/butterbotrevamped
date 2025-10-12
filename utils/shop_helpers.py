@@ -40,16 +40,3 @@ def get_shop_item_data(item_key: str):
                 return SHOP_ITEMS.get("buffs", {}).get(buff_category, {}).get(buff_key)
 
     return None
-
-
-def get_tool_bonus(item_key: str) -> float:
-    """
-    Retrieves the bonus percentage for an equipped tool like 'pickaxe_stone'.
-
-    :param item_key: The full item key (e.g., 'pickaxe_stone')
-    :return: The bonus as a float (e.g., 0.2), or 0.0 if not found
-    """
-    item_data = get_shop_item_data(item_key)
-    if item_data and "bonus" in item_data:
-        return item_data["bonus"]
-    return 0.0
