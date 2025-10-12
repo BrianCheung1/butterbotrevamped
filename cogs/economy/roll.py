@@ -8,6 +8,9 @@ from discord import app_commands
 from utils.balance_helper import calculate_percentage_amount, validate_amount
 from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
+from logger import setup_logger
+
+logger = setup_logger("Roll")
 
 
 async def perform_roll(bot, interaction, user_id, amount, action, prev_balance=None):
@@ -151,7 +154,7 @@ class RollAgainView(discord.ui.View):
         try:
             await self.message.edit(content="Roll game timed out.", view=None)
         except discord.NotFound:
-            self.bot.logger.debug("Message not found when disabling buttons.")
+            logger.debug("Message not found when disabling buttons.")
 
     @discord.ui.button(label="Roll Again", style=discord.ButtonStyle.green)
     async def roll_again(

@@ -5,6 +5,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils.formatting import format_number
+from logger import setup_logger
+
+logger = setup_logger("Daily")
 
 
 class Daily(commands.Cog):
@@ -132,16 +135,14 @@ class Daily(commands.Cog):
                     await self.bot.database.user_db.set_daily_reminder_date(
                         user_id, now.isoformat()
                     )
-                    self.bot.logger.info(
+                    logger.info(
                         f"Sent daily streak reminder to {user.name} ({user.id})"
                     )
 
                 except discord.Forbidden:
-                    self.bot.logger.warning(
-                        f"Cannot DM user {user_id}; DMs might be closed."
-                    )
+                    logger.warning(f"Cannot DM user {user_id}; DMs might be closed.")
                 except Exception as e:
-                    self.bot.logger.error(f"Error sending DM to user {user_id}: {e}")
+                    logger.error(f"Error sending DM to user {user_id}: {e}")
 
 
 async def setup(bot):

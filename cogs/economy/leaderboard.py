@@ -6,6 +6,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.formatting import format_number
+from logger import setup_logger
+
+logger = setup_logger("Leaderboard")
 
 
 class LeaderboardView(discord.ui.View):
@@ -153,17 +156,17 @@ class Leaderboard(commands.Cog):
             )
             wait_seconds = (next_midnight - now).total_seconds()
 
-            self.bot.logger.info(
-                f"[Leaderboard] Sleeping {wait_seconds:.0f}s until next 12:00 AM UTC broadcast"
+            logger.info(
+                f"leeping {wait_seconds:.0f}s until next 12:00 AM UTC broadcast"
             )
 
             await asyncio.sleep(wait_seconds)
 
             try:
                 await self.send_daily_leaderboards()
-                self.bot.logger.info("[Leaderboard] Daily leaderboard sent.")
+                logger.info("Daily leaderboard sent.")
             except Exception as e:
-                self.bot.logger.error(f"[Leaderboard] Failed to send leaderboard: {e}")
+                logger.error(f"Failed to send leaderboard: {e}")
 
             await asyncio.sleep(1)
 

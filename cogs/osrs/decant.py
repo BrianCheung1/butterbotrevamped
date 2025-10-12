@@ -7,6 +7,7 @@ from datetime import datetime
 import discord
 from discord import app_commands
 from discord.ext import commands
+from logger import setup_logger
 
 # Default filters
 DEFAULT_MIN_PROFIT = 100_000
@@ -18,6 +19,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 json_path = os.path.join(project_root, "constants", "potion_limits.json")
 with open(json_path, "r") as f:
     POTIONS = json.load(f)
+
+logger = setup_logger("OSRSDecant")
 
 
 class DecantPaginator(discord.ui.View):
@@ -506,7 +509,7 @@ class DecantChecker(commands.Cog):
             await interaction.followup.send(embed=embed, view=view)
 
         except Exception as e:
-            self.bot.logger.error(f"[DecantChecker] Error: {e}", exc_info=True)
+            logger.error(f"[DecantChecker] Error: {e}", exc_info=True)
             error_embed = discord.Embed(
                 title="❌ Error",
                 description=f"Failed to fetch potion prices:\n```{str(e)[:100]}```",

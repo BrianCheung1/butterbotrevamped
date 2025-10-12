@@ -6,6 +6,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from imdb import Cinemagoer
+from logger import setup_logger
+
+logger = setup_logger("Movies")
 
 ia = Cinemagoer()
 
@@ -30,9 +33,7 @@ class Movies(commands.Cog):
             if guild_id not in self.guilds:
                 self.guilds[guild_id] = {}
         self.guilds[guild_id][movie["title"]] = movie
-        self.bot.logger.info(
-            f"Cached {len(movies)} movies across {len(self.guilds)} guilds"
-        )
+        logger.info(f"Cached {len(movies)} movies across {len(self.guilds)} guilds")
 
     @app_commands.command(name="movie-add", description="Search for a movie by title.")
     async def add_movie(self, interaction: discord.Interaction, title: str):

@@ -1,5 +1,8 @@
 import discord
 from discord.ext import commands, tasks
+from logger import setup_logger
+
+logger = setup_logger("RemindLoop")
 
 
 class RemindLoop(commands.Cog):
@@ -22,15 +25,15 @@ class RemindLoop(commands.Cog):
                     user = await self.bot.fetch_user(int(user_id))
                     await user.send(f"🔔 Reminder: **{reminder}**")
                 except discord.Forbidden:
-                    self.bot.logger.warning(f"Cannot send DM to user {user_id}.")
+                    logger.warning(f"Cannot send DM to user {user_id}.")
                 except Exception as e:
-                    self.bot.logger.exception(
+                    logger.exception(
                         f"Error sending reminder to {user_id}: {e}"
                     )
                 finally:
                     await self.bot.database.reminders_db.delete_reminder(reminder_id)
         except Exception as loop_err:
-            self.bot.logger.exception(f"Error in reminder loop: {loop_err}")
+            logger.exception(f"Error in reminder loop: {loop_err}")
 
     @reminder_loop.before_loop
     async def before_reminder_loop(self):

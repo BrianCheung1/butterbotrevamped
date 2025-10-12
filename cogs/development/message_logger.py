@@ -1,10 +1,12 @@
-# cogs/logging/message_logger.py
 import json
 from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands
 from utils.channels import send_to_mod_log
+from logger import setup_logger
+
+logger = setup_logger("MessageLogger")
 
 
 class MessageLogger(commands.Cog):
@@ -21,7 +23,7 @@ class MessageLogger(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
-        timestamp = message.created_at.strftime("%I:%M:%S:%p")
+        timestamp = datetime.now().strftime("%I:%M:%S:%p")
 
         if message.guild:
             guild_name = message.guild.name
@@ -50,7 +52,7 @@ class MessageLogger(commands.Cog):
 
         log_line = f"{prefix}[{timestamp}] {user_display}: {content_to_log}"
 
-        self.bot.logger.info(log_line)
+        logger.info(log_line)
 
         if not message.attachments and not message.stickers:
             return
@@ -80,7 +82,7 @@ class MessageLogger(commands.Cog):
                 message.created_at.replace(tzinfo=None).isoformat(),
             )
         except Exception as e:
-            self.bot.logger.error(f"Failed to save message {message.id} to DB: {e}")
+            logger.error(f"Failed to save message {message.id} to DB: {e}")
 
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
@@ -110,7 +112,7 @@ class MessageLogger(commands.Cog):
                 after.id, after.content
             )
         except Exception as e:
-            self.bot.logger.error(f"Failed to update message {after.id}: {e}")
+            logger.error(f"Failed to update message {after.id}: {e}")
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message):
@@ -143,7 +145,7 @@ class MessageLogger(commands.Cog):
                 message.id, datetime.utcnow().isoformat()
             )
         except Exception as e:
-            self.bot.logger.error(f"Failed to mark message deleted: {e}")
+            logger.error(f"Failed to mark message deleted: {e}")
 
         self.message_cache.pop(message.id, None)
 

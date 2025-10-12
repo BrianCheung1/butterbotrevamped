@@ -6,8 +6,11 @@ from discord import app_commands
 from discord.ext import commands
 from discord.ext.commands.errors import ExtensionNotLoaded
 from utils.checks import is_owner_or_mod_check
+from logger import setup_logger
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
+
+logger = setup_logger("CogManager")
 
 
 class CogManager(commands.Cog):
@@ -116,14 +119,12 @@ class CogManager(commands.Cog):
                             await self.bot.load_extension(name)
 
                         if top_level_name not in logged_folders:
-                            self.bot.logger.info(f"Reloaded {top_level_name} cog.")
+                            logger.info(f"Reloaded {top_level_name} cog.")
                             logged_folders.add(top_level_name)
 
                     except Exception as e:
                         failed_cogs.append(f"`{name}`: {e}")
-                        self.bot.logger.error(
-                            f"Failed to reload or load {name} cog: {e}"
-                        )
+                        logger.error(f"Failed to reload or load {name} cog: {e}")
 
                 if failed_cogs:
                     embed = discord.Embed(
@@ -185,10 +186,10 @@ class CogManager(commands.Cog):
                     try:
                         try:
                             await self.bot.reload_extension(name)
-                            self.bot.logger.info(f"Reloaded {name} cog.")
+                            logger.info(f"Reloaded {name} cog.")
                         except ExtensionNotLoaded:
                             await self.bot.load_extension(name)
-                            self.bot.logger.info(f"Loaded new cog: {name}")
+                            logger.info(f"Loaded new cog: {name}")
                     except Exception as e:
                         failed_cogs.append(f"`{name}`: {e}")
 

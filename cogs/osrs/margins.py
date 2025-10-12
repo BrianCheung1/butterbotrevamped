@@ -6,6 +6,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from utils.channels import broadcast_embed_to_guilds
+from logger import setup_logger
+
+logger = setup_logger("OSRSMargin")
 
 # === FILTERS ===
 MIN_VOLUME = 400
@@ -159,30 +162,33 @@ class OSRSMargin(commands.Cog):
         """Stop the background task when cog is unloaded."""
         self.check_new_items.cancel()
 
-    async def fetch_margin_data(self, force_refresh=False, use_alert_filters=False):
+    async def fetch_margin_data(
+        self, force_refresh=False, use_alert_filters=False, shared_data=None
+    ):
         """
         Fetch and process margin data, return embeds or error message.
 
         :param force_refresh: Force bypass cache
         :param use_alert_filters: If True, use stricter alert margin tiers. If False, use command margin threshold.
+        :param shared_data: Optional pre-fetched API data to reuse (dict)
         """
-        # Skip first fetch on cog load/reload (only if not forced)
         if self._first_fetch and not force_refresh:
             self._first_fetch = False
             return "⏳ Bot just started/reloaded. Please run the command again in a moment."
 
-        # Check cache if not forcing refresh (only for command usage)
+        # Use cache if available and no force refresh
         if not force_refresh and not use_alert_filters:
             time_since_cache = time.time() - self.last_fetch_time
             if time_since_cache < CACHE_DURATION and self.cached_embeds:
                 return self.cached_embeds
 
-        # Get profitable items
+        # Get profitable items (with shared data reuse)
         result = await self._get_profitable_items(
-            use_alert_filters=use_alert_filters, force_refresh=force_refresh
+            use_alert_filters=use_alert_filters,
+            force_refresh=force_refresh,
+            shared_data=shared_data,
         )
 
-        # Check if error message was returned
         if isinstance(result, str):
             return result
 
@@ -195,19 +201,22 @@ class OSRSMargin(commands.Cog):
                 )
             return f"❌ No items found matching criteria (Vol ≥ {MIN_VOLUME:,}, Margin ≥ {COMMAND_MIN_MARGIN:,} gp)"
 
-        # Create paginated embeds
+        # Build paginated embeds
         embeds = []
         total_pages = (len(profitable_items) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
-
         for page in range(total_pages):
             start_idx = page * ITEMS_PER_PAGE
             end_idx = min(start_idx + ITEMS_PER_PAGE, len(profitable_items))
             page_items = profitable_items[start_idx:end_idx]
 
-            if use_alert_filters:
-                desc = f"Found {len(profitable_items)} items • Volume ≥ {MIN_VOLUME:,} • Tiered margins (alerts)"
-            else:
-                desc = f"Found {len(profitable_items)} items • Volume ≥ {MIN_VOLUME:,} • Margin ≥ {COMMAND_MIN_MARGIN:,} gp"
+            desc = (
+                f"Found {len(profitable_items)} items • Volume ≥ {MIN_VOLUME:,} • "
+                + (
+                    "Tiered margins (alerts)"
+                    if use_alert_filters
+                    else f"Margin ≥ {COMMAND_MIN_MARGIN:,} gp"
+                )
+            )
 
             embed = discord.Embed(
                 title="📊 OSRS Top Margins",
@@ -236,7 +245,7 @@ class OSRSMargin(commands.Cog):
             )
             embeds.append(embed)
 
-        # Cache the results (only for command usage)
+        # Cache results (for command only)
         if not use_alert_filters:
             self.cached_embeds = embeds
             self.last_fetch_time = time.time()
@@ -266,125 +275,103 @@ class OSRSMargin(commands.Cog):
             await interaction.followup.send(embed=embeds[0], view=view)
 
         except Exception as e:
-            self.bot.logger.error(f"[OSRSMargin] Error in command: {e}", exc_info=True)
+            logger.error(f"Error in command: {e}", exc_info=True)
             await interaction.followup.send(
                 f"❌ An unexpected error occurred: {str(e)}"
             )
 
     @tasks.loop(seconds=CHECK_INTERVAL)
     async def check_new_items(self):
-        """Background task to check for new items in top 15 and broadcast alerts."""
+        """Background task to check for new top margin items and send alerts."""
         try:
-            # Skip data fetching on first run to speed up cog loading
             if self._first_run:
-                self.bot.logger.info(
-                    "[OSRSMargin] First run, populating initial data without alerts"
-                )
+                logger.info("First run — populating baseline items only")
                 self._first_run = False
-
-                # Just populate the top_item_ids set without fetching or alerting
                 result = await self._get_profitable_items()
                 if isinstance(result, str) or not result:
                     return
-
-                top_items = result[:TOP_ITEMS_COUNT]
-                self.top_item_ids = {item["id"] for item in top_items}
-                self.bot.logger.info(
-                    f"[OSRSMargin] Initialized with {len(self.top_item_ids)} top items"
-                )
+                self.top_item_ids = {item["id"] for item in result[:TOP_ITEMS_COUNT]}
                 return
 
-            embeds = await self.fetch_margin_data(force_refresh=True)
-
-            if isinstance(embeds, str):
-                self.bot.logger.error(
-                    f"[OSRSMargin] Failed to fetch data for monitoring: {embeds}"
-                )
-                return
-
-            if not embeds or len(embeds) == 0:
-                return
-
-            # Get profitable items with alert filters
-            result = await self._get_profitable_items(
-                use_alert_filters=True, force_refresh=True
+            # Fetch shared API data ONCE
+            latest_data = await self.data_manager.get_latest_prices(force_refresh=True)
+            mapping = await self.data_manager.get_mapping(force_refresh=True)
+            item_names = [item["name"] for item in mapping]
+            volume_data = await self.data_manager.get_weirdgloop_volumes(
+                item_names, force_refresh=True
             )
-            if isinstance(result, str) or not result:
+
+            shared_data = {
+                "price_data": latest_data.get("data", {}),
+                "mapping": mapping,
+                "volume_data": volume_data,
+            }
+
+            # Get top profitable items for alerts
+            profitable_items = await self._get_profitable_items(
+                use_alert_filters=True, shared_data=shared_data
+            )
+            if isinstance(profitable_items, str) or not profitable_items:
                 return
 
-            profitable_items = result
-
-            # Get top N items
             top_items = profitable_items[:TOP_ITEMS_COUNT]
             current_top_ids = {item["id"] for item in top_items}
 
-            # Find new items that weren't in the previous top list
-            if self.top_item_ids:
-                new_items = [
-                    item for item in top_items if item["id"] not in self.top_item_ids
-                ]
+            new_items = [
+                item for item in top_items if item["id"] not in self.top_item_ids
+            ]
 
-                for item in new_items:
-                    embed = discord.Embed(
-                        title="🚨 New High Margin Item Alert!",
-                        description=f"**{item['name']}** has entered the top {TOP_ITEMS_COUNT} margins!",
-                        color=discord.Color.gold(),
-                        timestamp=datetime.now(timezone.utc),
-                    )
+            for item in new_items:
+                embed = discord.Embed(
+                    title="🚨 New High Margin Item Alert!",
+                    description=f"**{item['name']}** entered the top {TOP_ITEMS_COUNT} margins!",
+                    color=discord.Color.gold(),
+                    timestamp=datetime.now(timezone.utc),
+                )
 
-                    buy_time = (
-                        f"<t:{item['low_time']}:R>" if item["low_time"] else "N/A"
-                    )
-                    sell_time = (
-                        f"<t:{item['high_time']}:R>" if item["high_time"] else "N/A"
-                    )
+                buy_time = f"<t:{item['low_time']}:R>" if item["low_time"] else "N/A"
+                sell_time = f"<t:{item['high_time']}:R>" if item["high_time"] else "N/A"
 
+                embed.add_field(
+                    name="📊 Margin Details",
+                    value=(
+                        f"**Buy:** {item['low']:,} gp ({buy_time})\n"
+                        f"**Sell:** {item['high']:,} gp ({sell_time})\n"
+                        f"**Margin:** {item['margin']:,} gp | ROI: {item['roi']}%\n"
+                        f"**Volume:** {item['volume']:,}"
+                    ),
+                    inline=False,
+                )
+
+                if item.get("avg_buy_24h") or item.get("avg_buy_7d"):
+                    avg_text = ""
+                    if item.get("avg_buy_24h"):
+                        avg_text += f"**24H Avg Buy:** {item['avg_buy_24h']:,} gp\n"
+                        avg_text += f"**24H Avg Sell:** {item['avg_sell_24h']:,} gp\n"
+                    if item.get("avg_buy_7d"):
+                        avg_text += f"**7D Avg Buy:** {item['avg_buy_7d']:,} gp\n"
+                        avg_text += f"**7D Avg Sell:** {item['avg_sell_7d']:,} gp"
                     embed.add_field(
-                        name="📊 Margin Details",
-                        value=(
-                            f"**Item:** [{item['name']}](https://prices.osrs.cloud/item/{item['id']})\n"
-                            f"**Buy Price:** {item['low']:,} gp ({buy_time})\n"
-                            f"**Sell Price:** {item['high']:,} gp ({sell_time})\n"
-                            f"**Margin:** {item['margin']:,} gp\n"
-                            f"**ROI:** {item['roi']}%\n"
-                            f"**Daily Volume:** {item['volume']:,}"
-                        ),
-                        inline=False,
+                        name="📈 Historical Averages", value=avg_text, inline=False
                     )
 
-                    # NEW: Add historical averages field if available
-                    if item.get("avg_buy_24h") or item.get("avg_buy_7d"):
-                        avg_text = ""
-                        if item.get("avg_buy_24h"):
-                            avg_text += f"**24H Avg Buy:** {item['avg_buy_24h']:,} gp\n"
-                            avg_text += (
-                                f"**24H Avg Sell:** {item['avg_sell_24h']:,} gp\n"
-                            )
-                        if item.get("avg_buy_7d"):
-                            avg_text += f"**7D Avg Buy:** {item['avg_buy_7d']:,} gp\n"
-                            avg_text += f"**7D Avg Sell:** {item['avg_sell_7d']:,} gp"
+                embed.set_footer(text="OSRS Wiki API • Weirdgloop API")
 
-                        if avg_text:
-                            embed.add_field(
-                                name="📈 Historical Averages",
-                                value=avg_text,
-                                inline=False,
-                            )
+                await broadcast_embed_to_guilds(self.bot, "osrs_channel_id", embed)
+                logger.info(
+                    f"🚨 Alert sent: {item['name']} entered top {TOP_ITEMS_COUNT}"
+                )
 
-                    embed.set_footer(text="OSRS Wiki API • Weirdgloop API")
-
-                    await broadcast_embed_to_guilds(self.bot, "osrs_channel_id", embed)
-
-                    self.bot.logger.info(
-                        f"[OSRSMargin] 🚨 Alert sent: {item['name']} entered top {TOP_ITEMS_COUNT} margins"
-                    )
+            # Also refresh the cached embeds using the same shared data
+            embeds = await self.fetch_margin_data(shared_data=shared_data)
+            if not isinstance(embeds, str):
+                self.cached_embeds = embeds
+                self.last_fetch_time = time.time()
 
             self.top_item_ids = current_top_ids
 
         except Exception as e:
-            self.bot.logger.error(
-                f"[OSRSMargin] Error in monitoring task: {e}", exc_info=True
-            )
+            logger.error(f"Error in monitoring task: {e}", exc_info=True)
 
     @check_new_items.before_loop
     async def before_check_new_items(self):
@@ -428,65 +415,40 @@ class OSRSMargin(commands.Cog):
 
         return stats
 
-    async def _get_profitable_items(self, use_alert_filters=False, force_refresh=False):
+    async def _get_profitable_items(
+        self, use_alert_filters=False, force_refresh=False, shared_data=None
+    ):
         """
-        Helper method to get the list of profitable items using data manager.
+        Get list of profitable items using shared or fetched API data.
 
-        :param use_alert_filters: If True, use tiered margins (for alerts). If False, use fixed margin (for command).
-        :param force_refresh: Force bypass cache
-        :return: List of profitable items or error message string
+        :param use_alert_filters: Use tiered margins (for alerts)
+        :param force_refresh: Force refresh from API
+        :param shared_data: Optional dict with pre-fetched data
         """
         try:
-            # Get latest prices from data manager (cached automatically)
-            self.bot.logger.info(
-                "[OSRSMargin] Fetching latest prices from data manager..."
-            )
-            latest_data = await self.data_manager.get_latest_prices(
-                force_refresh=force_refresh
-            )
-            price_data = latest_data.get("data", {})
+            if shared_data:
+                price_data = shared_data["price_data"]
+                mapping = shared_data["mapping"]
+                volume_data = shared_data["volume_data"]
+            else:
+                logger.info("Fetching OSRS data (no shared data provided)...")
+                latest_data = await self.data_manager.get_latest_prices(
+                    force_refresh=force_refresh
+                )
+                price_data = latest_data.get("data", {})
+                mapping = await self.data_manager.get_mapping(
+                    force_refresh=force_refresh
+                )
+                item_names = [item["name"] for item in mapping]
+                volume_data = await self.data_manager.get_weirdgloop_volumes(
+                    item_names, force_refresh=force_refresh
+                )
 
-            if not price_data:
-                self.bot.logger.error("[OSRSMargin] No price data returned")
-                return "❌ No price data available from OSRS Wiki API"
-
-            self.bot.logger.info(
-                f"[OSRSMargin] Received {len(price_data)} items from Wiki API"
-            )
-
-            # Get item mapping from data manager (cached automatically)
-            self.bot.logger.info(
-                "[OSRSMargin] Fetching item mappings from data manager..."
-            )
-            mapping = await self.data_manager.get_mapping(force_refresh=force_refresh)
-
-            if not mapping:
-                self.bot.logger.error("[OSRSMargin] No mapping data returned")
-                return "❌ No item mapping data available from OSRS Wiki API"
-
-            self.bot.logger.info(
-                f"[OSRSMargin] Received {len(mapping)} items in mapping"
-            )
-
-            # Get all item names for volume lookup
-            item_names = [item["name"] for item in mapping]
-
-            # Get volume data from data manager (cached and chunked automatically)
-            self.bot.logger.info(
-                "[OSRSMargin] Fetching volume data from data manager..."
-            )
-            volume_data = await self.data_manager.get_weirdgloop_volumes(
-                item_names, force_refresh=force_refresh
-            )
-
-            self.bot.logger.info(
-                f"[OSRSMargin] Received volume data for {len(volume_data)} items"
-            )
+            if not price_data or not mapping or not volume_data:
+                return "❌ Missing OSRS API data"
 
         except Exception as e:
-            self.bot.logger.error(
-                f"[OSRSMargin] Error fetching OSRS data: {e}", exc_info=True
-            )
+            logger.error(f"Error fetching OSRS data: {e}", exc_info=True)
             return f"❌ Error fetching data from OSRS APIs: {str(e)}"
 
         profitable_items = []
@@ -497,82 +459,50 @@ class OSRSMargin(commands.Cog):
             except ValueError:
                 continue
 
-            # Get high and low prices
             high_price = price_info.get("high")
             low_price = price_info.get("low")
             high_time = price_info.get("highTime")
             low_time = price_info.get("lowTime")
 
-            # Skip if missing price data
-            if high_price is None or low_price is None:
+            if not high_price or not low_price or high_price <= low_price:
                 continue
 
-            if high_price <= 0 or low_price <= 0:
-                continue
-
-            # Skip if no margin potential
-            if high_price <= low_price:
-                continue
-
-            # Get item info from cached mapping
             item_info = self.data_manager.get_item_info(item_id)
             if not item_info:
                 continue
 
             item_name = item_info["name"]
-
-            # Get volume from Weirdgloop data
             if item_name not in volume_data:
                 continue
 
             daily_volume = volume_data[item_name].get("volume")
-
-            # Skip if volume is None or missing
-            if daily_volume is None:
+            if not daily_volume or daily_volume < MIN_VOLUME:
                 continue
 
-            # Filter by volume
-            if daily_volume < MIN_VOLUME:
-                continue
-
-            # Filter by max price (if set)
             if MAX_PRICE is not None and low_price > MAX_PRICE:
                 continue
 
-            # Calculate margin after 2% GE tax
             ge_tax = high_price * 0.02
-            effective_sell = high_price - ge_tax
-            margin = effective_sell - low_price
-
-            # Apply appropriate margin filter based on mode
+            margin = (high_price - ge_tax) - low_price
             if use_alert_filters:
-                # Use tiered margins for alerts (stricter)
                 min_margin = get_min_margin_for_price(low_price)
             else:
-                # Use fixed margin for command (more lenient)
                 min_margin = COMMAND_MIN_MARGIN
 
-            # Skip if not profitable after applying margin threshold
             if margin <= min_margin:
                 continue
 
-            # Calculate ROI
             roi = (margin / low_price) * 100 if low_price > 0 else 0
 
-            # NEW: Fetch historical data for this item to calculate averages
             historical_stats = {}
-            if use_alert_filters:  # Only fetch for alerts to avoid slowdown
+            if use_alert_filters:
                 try:
-                    # Get comprehensive data including history
                     item_data = await self.data_manager.get_comprehensive_item_data(
                         item_id
                     )
                     historical_stats = self._calculate_stats(item_data["history"])
                 except Exception as e:
-                    self.bot.logger.warning(
-                        f"[OSRSMargin] Failed to get history for {item_name}: {e}"
-                    )
-                    historical_stats = {}
+                    logger.warning(f"Failed to get history for {item_name}: {e}")
 
             profitable_items.append(
                 {
@@ -585,7 +515,6 @@ class OSRSMargin(commands.Cog):
                     "margin": round(margin),
                     "roi": round(roi, 2),
                     "volume": daily_volume,
-                    # NEW: Add historical averages
                     "avg_buy_24h": int(
                         historical_stats.get("24h", {}).get("avg_low", 0)
                     ),
@@ -599,12 +528,8 @@ class OSRSMargin(commands.Cog):
                 }
             )
 
-        # Sort by margin (highest to lowest)
         profitable_items.sort(key=lambda x: x["margin"], reverse=True)
-
-        self.bot.logger.info(
-            f"[OSRSMargin] Found {len(profitable_items)} profitable items after filtering"
-        )
+        logger.info(f"Found {len(profitable_items)} profitable items after filtering")
 
         return profitable_items
 

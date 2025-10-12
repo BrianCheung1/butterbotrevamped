@@ -5,6 +5,9 @@ from discord import app_commands
 from discord.ext import commands
 from utils.checks import is_owner_or_mod_check
 from utils.valorant_helpers import name_autocomplete, tag_autocomplete
+from logger import setup_logger
+
+logger = setup_logger("ValorantModeration")
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 
@@ -54,7 +57,7 @@ class ValorantModeration(commands.Cog):
                     f"⚠️ `{name}#{tag}` was not found in the database."
                 )
         except Exception as e:
-            self.bot.logger.error(
+            logger.error(
                 f"Error removing player {name}#{tag}: {e}", exc_info=True
             )
             await interaction.followup.send(
@@ -113,7 +116,7 @@ class ValorantModeration(commands.Cog):
                     else:
                         not_found.append(f"{name}#{tag}")
                 except Exception as e:
-                    self.bot.logger.warning(f"Error removing {name}#{tag}: {e}")
+                    logger.warning(f"Error removing {name}#{tag}: {e}")
                     errors.append(f"{name}#{tag}")
 
             # Build response
@@ -158,7 +161,7 @@ class ValorantModeration(commands.Cog):
             await interaction.followup.send(embed=embed)
 
         except Exception as e:
-            self.bot.logger.error(f"Error in bulk remove operation: {e}", exc_info=True)
+            logger.error(f"Error in bulk remove operation: {e}", exc_info=True)
             await interaction.followup.send(
                 "❌ An error occurred during bulk removal.", ephemeral=True
             )

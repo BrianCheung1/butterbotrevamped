@@ -2,6 +2,9 @@ import discord
 from discord.ext import commands
 from utils.balance_helper import validate_amount
 from utils.formatting import format_number
+from logger import setup_logger
+
+logger = setup_logger("BaseGameCog")
 
 
 class BaseGameCog(commands.Cog):
@@ -278,7 +281,7 @@ class BaseGameCog(commands.Cog):
         self, user_id: int, action: str, amount: int, details: str = ""
     ):
         """Log a transaction for debugging/auditing."""
-        self.bot.logger.info(
+        logger.info(
             f"[{action}] User {user_id} | Amount: ${format_number(amount)} | {details}"
         )
 
@@ -297,8 +300,8 @@ class BaseGameCog(commands.Cog):
             await user.send(embed=embed)
             return True
         except discord.Forbidden:
-            self.bot.logger.warning(f"Cannot DM user {user_id}; DMs might be closed.")
+            logger.warning(f"Cannot DM user {user_id}; DMs might be closed.")
             return False
         except Exception as e:
-            self.bot.logger.error(f"Error notifying user {user_id}: {e}")
+            logger.error(f"Error notifying user {user_id}: {e}")
             return False

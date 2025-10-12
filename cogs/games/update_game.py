@@ -7,12 +7,18 @@ from discord import app_commands
 from discord.ext import commands
 from utils.channels import broadcast_embed_to_guilds
 from utils.checks import is_owner_or_mod_check
-from utils.steam_helpers import (clean_notes, extract_app_id,
-                                 fetch_steam_app_details,
-                                 fetch_steam_review_summary,
-                                 game_title_autocomplete)
+from utils.steam_helpers import (
+    clean_notes,
+    extract_app_id,
+    fetch_steam_app_details,
+    fetch_steam_review_summary,
+    game_title_autocomplete,
+)
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
+from logger import setup_logger
+
+logger = setup_logger("UpdateGame")
 
 
 class UpdateGame(commands.Cog):
@@ -142,7 +148,7 @@ class UpdateGame(commands.Cog):
 
         except Exception as e:
             await interaction.followup.send("❌ Failed to update game.", ephemeral=True)
-            self.bot.logger.error(f"Update Game Error: {e}", exc_info=True)
+            logger.error(f"Update Game Error: {e}", exc_info=True)
 
 
 async def setup(bot):

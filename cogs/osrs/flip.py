@@ -3,6 +3,7 @@ import time
 import discord
 from discord import app_commands
 from discord.ext import commands
+from logger import setup_logger
 
 # Configuration
 MIN_VOLUME_1H = 50_000
@@ -20,6 +21,9 @@ MIN_LIQUIDITY_SCORE = 0.3
 MAX_PRICE_VOLATILITY = 0.25
 RECENCY_WEIGHT = 0.3
 MAX_TRADE_AGE_MINUTES = 60
+
+
+logger = setup_logger("OSRSFlips")
 
 
 class OSRSFlips(commands.Cog):
@@ -178,8 +182,8 @@ class OSRSFlips(commands.Cog):
             }
 
         except Exception as e:
-            self.bot.logger.error(
-                f"[OSRSFlips] Error fetching data: {e}", exc_info=True
+            logger.error(
+                f"Error fetching data: {e}", exc_info=True
             )
             raise
 

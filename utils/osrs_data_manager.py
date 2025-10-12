@@ -4,6 +4,9 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 import aiohttp
+from logger import setup_logger
+
+logger = setup_logger("OSRSDataManager")
 
 
 class OSRSDataManager:
@@ -54,7 +57,7 @@ class OSRSDataManager:
     async def initialize(self):
         """Load initial data on startup."""
         await self.get_mapping()
-        self.bot.logger.info("[OSRSDataManager] Initialized with item mappings")
+        logger.info("Initialized with item mappings")
 
     def _is_cache_valid(self, cache_key: str, endpoint_type: str) -> bool:
         """Check if cached data is still valid."""
@@ -94,13 +97,13 @@ class OSRSDataManager:
                 return data
 
             except Exception as e:
-                self.bot.logger.error(
-                    f"[OSRSDataManager] Error fetching {cache_key}: {e}"
+                logger.error(
+                    f"Error fetching {cache_key}: {e}"
                 )
                 # Return stale cache if available, otherwise raise
                 if cache_key in self._cache:
-                    self.bot.logger.warning(
-                        f"[OSRSDataManager] Using stale cache for {cache_key}"
+                    logger.warning(
+                        f"Using stale cache for {cache_key}"
                     )
                     return self._cache[cache_key]
                 raise
@@ -256,8 +259,8 @@ class OSRSDataManager:
 
                 for result in results:
                     if isinstance(result, Exception):
-                        self.bot.logger.error(
-                            f"[OSRSDataManager] Error fetching Weirdgloop chunk: {result}"
+                        logger.error(
+                            f"Error fetching Weirdgloop chunk: {result}"
                         )
                         continue
                     volume_data.update(result)
@@ -293,8 +296,8 @@ class OSRSDataManager:
         data = {}
         for key, result in zip(tasks.keys(), results):
             if isinstance(result, Exception):
-                self.bot.logger.error(
-                    f"[OSRSDataManager] Error fetching {key} for item {item_id}: {result}"
+                logger.error(
+                    f"Error fetching {key} for item {item_id}: {result}"
                 )
                 data[key] = {} if key == "latest" else []
             else:
@@ -404,13 +407,13 @@ class OSRSDataManager:
             for key in keys_to_remove:
                 self._cache.pop(key, None)
                 self._cache_timestamps.pop(key, None)
-            self.bot.logger.info(
-                f"[OSRSDataManager] Cleared {len(keys_to_remove)} cache entries for {endpoint_type}"
+            logger.info(
+                f"Cleared {len(keys_to_remove)} cache entries for {endpoint_type}"
             )
         else:
             self._cache.clear()
             self._cache_timestamps.clear()
-            self.bot.logger.info("[OSRSDataManager] Cleared all cache")
+            logger.info("Cleared all cache")
 
     def get_cache_stats(self) -> Dict:
         """Get statistics about current cache state."""

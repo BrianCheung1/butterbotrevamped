@@ -1,19 +1,24 @@
 import os
-import re
 from datetime import datetime, timezone
 from typing import Optional
 
 import discord
-import requests
 from discord import app_commands
 from discord.ext import commands
 from utils.channels import broadcast_embed_to_guilds
 from utils.checks import is_owner_or_mod_check
-from utils.steam_helpers import (clean_notes, extract_app_id,
-                                 fetch_steam_app_details,
-                                 fetch_steam_review_summary)
+from utils.steam_helpers import (
+    clean_notes,
+    extract_app_id,
+    fetch_steam_app_details,
+    fetch_steam_review_summary,
+)
+from logger import setup_logger
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
+
+
+logger = setup_logger("AddGame")
 
 
 class AddGame(commands.Cog):
@@ -124,7 +129,7 @@ class AddGame(commands.Cog):
 
         except Exception as e:
             await interaction.followup.send("❌ Failed to add game.", ephemeral=True)
-            self.bot.logger.error(f"Add Game Error: {e}", exc_info=True)
+            logger.error(f"Add Game Error: {e}", exc_info=True)
 
 
 async def setup(bot):

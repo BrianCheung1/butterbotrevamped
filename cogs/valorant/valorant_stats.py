@@ -10,6 +10,9 @@ from utils.valorant_data_manager import (APIUnavailableError,
                                          PlayerNotFoundError, RateLimitError)
 from utils.valorant_helpers import (convert_to_datetime, name_autocomplete,
                                     parse_season, tag_autocomplete)
+from logger import setup_logger
+
+logger = setup_logger("ValorantStats")
 
 # Configuration - Centralize magic numbers
 MAX_RECENT_MATCHES = 50  # Limit detailed processing to 50 matches
@@ -114,7 +117,7 @@ class ValorantStats(commands.Cog):
             return all_player_stats, player_fb_count, player_fd_count
 
         except Exception as e:
-            self.bot.logger.warning(
+            logger.warning(
                 f"Error processing first blood stats for match {match_data.get('meta', {}).get('id')}: {e}"
             )
             return {}, 0, 0
@@ -305,7 +308,7 @@ class ValorantStats(commands.Cog):
             return embed
 
         except Exception as e:
-            self.bot.logger.error(f"Error building scoreboard: {e}", exc_info=True)
+            logger.error(f"Error building scoreboard: {e}", exc_info=True)
             return self._build_error_embed("Failed to build scoreboard")
 
     def _build_error_embed(self, error_msg: str) -> discord.Embed:
@@ -368,7 +371,7 @@ class ValorantStats(commands.Cog):
             return None
 
         except Exception as e:
-            self.bot.logger.warning(f"Error calculating player placement: {e}")
+            logger.warning(f"Error calculating player placement: {e}")
             return None
 
     async def _extract_all_player_acs(self, match_data: dict) -> Dict[str, int]:
@@ -414,7 +417,7 @@ class ValorantStats(commands.Cog):
             return player_acs
 
         except Exception as e:
-            self.bot.logger.warning(f"Error extracting ACS for match: {e}")
+            logger.warning(f"Error extracting ACS for match: {e}")
             return {}
 
     def _calculate_player_placement_in_match(
@@ -454,7 +457,7 @@ class ValorantStats(commands.Cog):
         placements_per_game = []
 
         recent_matches = matches[:MAX_RECENT_MATCHES]
-        self.bot.logger.info(
+        logger.info(
             f"Fetching detailed stats for {len(recent_matches)} matches (limited from {len(matches)})..."
         )
 
@@ -518,7 +521,7 @@ class ValorantStats(commands.Cog):
                     if placement:
                         placements_per_game.append(placement)
                 except Exception as e:
-                    self.bot.logger.warning(
+                    logger.warning(
                         f"Error processing stats for match {mid}: {e}"
                     )
 
@@ -632,7 +635,7 @@ class ValorantStats(commands.Cog):
                         placement_indicator = f" • 📊 #{placement}"
 
                 except Exception as e:
-                    self.bot.logger.warning(f"Error getting match stats: {e}")
+                    logger.warning(f"Error getting match stats: {e}")
 
             lines.append(
                 f"{result_emoji} **{map_name}** ({map_score}) • {agent}\n"
@@ -810,7 +813,7 @@ class ValorantStats(commands.Cog):
                 ephemeral=True,
             )
         except Exception as e:
-            self.bot.logger.error(
+            logger.error(
                 f"Error fetching stats for {name}#{tag}: {e}", exc_info=True
             )
             await interaction.followup.send(

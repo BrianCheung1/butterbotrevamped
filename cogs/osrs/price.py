@@ -5,6 +5,9 @@ from typing import Dict, List, Tuple
 import discord
 from discord import app_commands
 from discord.ext import commands
+from logger import setup_logger
+
+logger = setup_logger("OSRSPrice")
 
 # Timeframe configurations: (step, lookback_count)
 TIMEFRAMES = {
@@ -81,7 +84,7 @@ class EnhancedPriceChecker(commands.Cog):
         """Called when cog is loaded - data is already loaded by data manager."""
         self._items_loaded = True
         await self.update_nature_rune_price()
-        self.bot.logger.info("[PriceChecker] Using centralized data manager")
+        logger.info("Using centralized data manager")
 
     async def fetch_data(self, item_id: int) -> Tuple[Dict, Dict, Dict]:
         """Fetch latest prices, history, and calculated stats using data manager."""
@@ -172,17 +175,11 @@ class EnhancedPriceChecker(commands.Cog):
             self.nature_rune_price = nature_data.get("high", 0)
 
             if self.nature_rune_price > 0:
-                self.bot.logger.info(
-                    f"[PriceChecker] Nature rune price: {self.nature_rune_price} gp"
-                )
+                logger.info(f"Nature rune price: {self.nature_rune_price} gp")
             else:
-                self.bot.logger.warning(
-                    "[PriceChecker] Could not fetch nature rune price"
-                )
+                logger.warning("Could not fetch nature rune price")
         except Exception as e:
-            self.bot.logger.error(
-                f"[PriceChecker] Failed to fetch nature rune price: {e}"
-            )
+            logger.error(f"Failed to fetch nature rune price: {e}")
             self.nature_rune_price = 0
 
     async def build_embed(
@@ -212,7 +209,7 @@ class EnhancedPriceChecker(commands.Cog):
             return builders[mode](item_id, name, latest, history, stats)
 
         except Exception as e:
-            self.bot.logger.error(f"[PriceChecker] Build error: {e}", exc_info=True)
+            logger.error(f"Build error: {e}", exc_info=True)
             return discord.Embed(
                 title="❌ Error",
                 description="Failed to build embed",
@@ -525,7 +522,7 @@ class EnhancedPriceChecker(commands.Cog):
                 embed=embed, view=RefreshView(self, item_id, item)
             )
         except Exception as e:
-            self.bot.logger.error(f"[PriceChecker] Command error: {e}", exc_info=True)
+            logger.error(f"Command error: {e}", exc_info=True)
             await interaction.followup.send(
                 embed=discord.Embed(
                     title="❌ Error",

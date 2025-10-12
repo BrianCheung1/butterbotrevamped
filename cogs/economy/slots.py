@@ -8,6 +8,9 @@ from discord import app_commands
 from utils.balance_helper import calculate_percentage_amount, validate_amount
 from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
+from logger import setup_logger
+
+logger = setup_logger("Slots")
 
 
 async def perform_slots(bot, interaction, user_id, amount, action, prev_balance=None):
@@ -159,7 +162,7 @@ class SlotsAgainView(discord.ui.View):
                 message = await self.channel.fetch_message(self.message_id)
                 await message.edit(view=self)
             except discord.HTTPException:
-                self.bot.logger.debug("Slots message expired or timed out")
+                logger.debug("Slots message expired or timed out")
 
     @discord.ui.button(label="Spin Again", style=discord.ButtonStyle.green)
     async def spin_again(

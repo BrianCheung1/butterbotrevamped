@@ -8,6 +8,9 @@ from discord.ext import commands, tasks
 from utils.channels import broadcast_embed_to_guilds
 from utils.valorant_data_manager import RateLimitError
 from utils.valorant_helpers import get_rank_value, name_autocomplete, tag_autocomplete
+from logger import setup_logger
+
+logger = setup_logger("ValorantLeaderboard")
 
 
 class ValorantLeaderboard(commands.Cog):
@@ -32,32 +35,30 @@ class ValorantLeaderboard(commands.Cog):
         """Send daily leaderboard at midnight UTC."""
         try:
             await self.send_daily_leaderboards()
-            self.bot.logger.info("✅ Daily leaderboard sent successfully")
+            logger.info("✅ Daily leaderboard sent successfully")
         except Exception as e:
-            self.bot.logger.error(
-                f"❌ Error sending daily leaderboard: {e}", exc_info=True
-            )
+            logger.error(f"❌ Error sending daily leaderboard: {e}", exc_info=True)
 
     @daily_leaderboard_task.before_loop
     async def before_daily_leaderboard(self):
         """Wait until bot is ready before starting the loop."""
         await self.bot.wait_until_ready()
-        self.bot.logger.info("[ValorantLeaderboard] Daily leaderboard task started")
+        logger.info("Daily leaderboard task started")
 
     @tasks.loop(hours=6)  # Runs every 6 hours
     async def periodic_mmr_update_task(self):
         """Update MMR for all players every 6 hours."""
         try:
             await self.run_mmr_update()
-            self.bot.logger.info("✅ MMR update cycle completed")
+            logger.info("✅ MMR update cycle completed")
         except Exception as e:
-            self.bot.logger.error(f"❌ Error in MMR update: {e}", exc_info=True)
+            logger.error(f"❌ Error in MMR update: {e}", exc_info=True)
 
     @periodic_mmr_update_task.before_loop
     async def before_mmr_update(self):
         """Wait until bot is ready before starting the loop."""
         await self.bot.wait_until_ready()
-        self.bot.logger.info("[ValorantLeaderboard] MMR update task started")
+        logger.info("MMR update task started")
 
     async def send_daily_leaderboards(self):
         """Generate and broadcast daily leaderboard."""
@@ -90,11 +91,11 @@ class ValorantLeaderboard(commands.Cog):
 
     async def run_mmr_update(self):
         """Update MMR for all players with parallelized batch processing."""
-        self.bot.logger.info("🔄 Starting MMR update cycle...")
+        logger.info("🔄 Starting MMR update cycle...")
 
         players = await self.bot.database.players_db.get_all_player_mmr()
         if not players:
-            self.bot.logger.info("No players to update")
+            logger.info("No players to update")
             return
 
         updated_count = 0
@@ -125,12 +126,12 @@ class ValorantLeaderboard(commands.Cog):
                 else:
                     skipped_count += 1
             except Exception as e:
-                self.bot.logger.warning(
+                logger.warning(
                     f"⚠️ Error parsing timestamp for {player['name']}#{player['tag']}: {e}"
                 )
                 players_to_update.append(player)
 
-        self.bot.logger.info(
+        logger.info(
             f"📊 Players to update: {len(players_to_update)}, Skipped: {skipped_count}"
         )
 
@@ -141,7 +142,7 @@ class ValorantLeaderboard(commands.Cog):
         ]
 
         for batch_num, batch in enumerate(batches, 1):
-            self.bot.logger.info(
+            logger.info(
                 f"Processing batch {batch_num}/{len(batches)} ({len(batch)} players)"
             )
 
@@ -151,7 +152,7 @@ class ValorantLeaderboard(commands.Cog):
                 # Fetch MMR data for all players in batch
                 results = await self.data_manager.batch_get_player_mmr(player_tuples)
             except RateLimitError as e:
-                self.bot.logger.warning(f"Rate limited: {e}")
+                logger.warning(f"Rate limited: {e}")
                 # Stop processing but don't crash
                 break
 
@@ -165,9 +166,7 @@ class ValorantLeaderboard(commands.Cog):
 
                 if mmr_data is None:
                     # Player not found or error
-                    self.bot.logger.info(
-                        f"🗑️ Deleting {name}#{tag} (not found or error)"
-                    )
+                    logger.info(f"🗑️ Deleting {name}#{tag} (not found or error)")
                     deletions.append((name, tag))
                     deleted_count += 1
                     continue
@@ -178,7 +177,7 @@ class ValorantLeaderboard(commands.Cog):
                     updates.append((name, tag, parsed["rank"], parsed["elo"]))
                     updated_count += 1
                 except Exception as e:
-                    self.bot.logger.error(
+                    logger.error(
                         f"❌ Error parsing MMR for {name}#{tag}: {e}", exc_info=True
                     )
                     error_count += 1
@@ -195,9 +194,7 @@ class ValorantLeaderboard(commands.Cog):
                     }
                     await self.bot.valorant_players.batch_set(cache_updates)
                 except Exception as e:
-                    self.bot.logger.error(
-                        f"Error saving batch to database: {e}", exc_info=True
-                    )
+                    logger.error(f"Error saving batch to database: {e}", exc_info=True)
 
             # Batch delete players
             if deletions:
@@ -206,19 +203,19 @@ class ValorantLeaderboard(commands.Cog):
                     # Remove from thread-safe cache
                     await self.bot.valorant_players.batch_delete(deletions)
                 except Exception as e:
-                    self.bot.logger.error(
+                    logger.error(
                         f"Error deleting batch from database: {e}", exc_info=True
                     )
             if batch_num < len(batches):
                 await asyncio.sleep(60)
 
-        self.bot.logger.info(
+        logger.info(
             f"✅ MMR Update Complete - Updated: {updated_count}, "
             f"Skipped: {skipped_count}, Deleted: {deleted_count}, Errors: {error_count}"
         )
 
         stats = self.data_manager.get_cache_stats()
-        self.bot.logger.info(
+        logger.info(
             f"📊 Cache Stats - Hit Rate: {stats['cache_hit_rate']:.1f}%, "
             f"API Calls: {stats['api_calls']}, Cached: {stats['total_cached']}"
         )

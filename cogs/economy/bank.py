@@ -8,6 +8,9 @@ from discord.ext import commands
 from utils.balance_helper import calculate_percentage_amount, validate_amount
 from utils.channels import broadcast_embed_to_guilds
 from utils.formatting import format_number
+from logger import setup_logger
+
+logger = setup_logger("Bank")
 
 
 class Bank(commands.Cog):
@@ -31,8 +34,8 @@ class Bank(commands.Cog):
             )
             wait_seconds = (next_midnight - now).total_seconds()
 
-            self.bot.logger.info(
-                f"[Bank] Sleeping {wait_seconds:.0f}s until next 12:00 AM UTC interest update"
+            logger.info(
+                f"Sleeping {wait_seconds:.0f}s until next 12:00 AM UTC interest update"
             )
 
             try:
@@ -43,9 +46,9 @@ class Bank(commands.Cog):
 
             try:
                 await self.apply_daily_interest()
-                self.bot.logger.info("[Bank] Daily interest applied successfully.")
+                logger.info("Daily interest applied successfully.")
             except Exception as e:
-                self.bot.logger.error(f"[Bank] Failed to apply daily interest: {e}")
+                logger.error(f"Failed to apply daily interest: {e}")
 
             # Small delay before next loop iteration
             await asyncio.sleep(1)
@@ -58,7 +61,7 @@ class Bank(commands.Cog):
         for user_id in user_ids:
             user = await self.bot.fetch_user(user_id)
             if user is None:
-                self.bot.logger.warning(f"User with ID {user_id} not found.")
+                logger.warning(f"User with ID {user_id} not found.")
                 continue
 
             bank_stats_raw = await self.bot.database.bank_db.get_user_bank_stats(
@@ -86,7 +89,7 @@ class Bank(commands.Cog):
         )
         await broadcast_embed_to_guilds(self.bot, "interest_channel_id", embed)
 
-        self.bot.logger.info(
+        logger.info(
             f"💸 Daily interest applied for {user_count} users at 12:00 AM UTC."
         )
 

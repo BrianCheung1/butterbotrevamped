@@ -2,10 +2,17 @@ from datetime import datetime
 
 import discord
 from discord import app_commands
-from discord.app_commands import (AppCommandError, BotMissingPermissions,
-                                  CheckFailure, CommandOnCooldown,
-                                  MissingPermissions)
+from discord.app_commands import (
+    AppCommandError,
+    BotMissingPermissions,
+    CheckFailure,
+    CommandOnCooldown,
+    MissingPermissions,
+)
 from discord.ext import commands
+from logger import setup_logger
+
+logger = setup_logger("CommandEvents")
 
 
 class CommandEvents(commands.Cog):
@@ -38,7 +45,7 @@ class CommandEvents(commands.Cog):
         else:
             log_msg = f"{GREEN}[DMs][{now}] {user}: {executed_command} Successfully executed.{RESET}"
 
-        self.bot.logger.info(log_msg)
+        logger.info(log_msg)
 
     @commands.Cog.listener()
     async def on_app_command_error(
@@ -69,7 +76,7 @@ class CommandEvents(commands.Cog):
                 f"{RED}[DMs][{now}] {user}: ERROR in {command_name} — {error}{RESET}"
             )
 
-        self.bot.logger.error(log_msg, exc_info=True)
+        logger.error(log_msg, exc_info=True)
 
         # Respond to the user if possible
         if not interaction.response.is_done():

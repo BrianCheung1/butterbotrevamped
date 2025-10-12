@@ -16,6 +16,9 @@ from utils.valorant_helpers import (
     parse_player_rank,
     tag_autocomplete,
 )
+from logger import setup_logger
+
+logger = setup_logger("ValorantMMR")
 
 
 class ValorantMMRHistory(commands.Cog):
@@ -105,7 +108,7 @@ class ValorantMMRHistory(commands.Cog):
             current = mmr_data.get("data", {}).get("current", {})
             current_rank, current_rr, games_needed = parse_player_rank(current)
         except Exception as e:
-            self.bot.logger.warning(f"Error parsing player rank: {e}")
+            logger.warning(f"Error parsing player rank: {e}")
             current_rank, current_rr, games_needed = "Unknown", 0, 0
 
         embed = discord.Embed(
@@ -137,7 +140,7 @@ class ValorantMMRHistory(commands.Cog):
             current_rank, current_rr, games_needed = parse_player_rank(current)
             shields = current.get("rank_protection_shields", 0)
         except Exception as e:
-            self.bot.logger.warning(f"Error parsing player rank: {e}")
+            logger.warning(f"Error parsing player rank: {e}")
             current_rank, current_rr, games_needed = "Unknown", 0, 0
             shields = 0
 
@@ -349,7 +352,7 @@ class ValorantMMRHistory(commands.Cog):
                 ephemeral=True,
             )
         except Exception as e:
-            self.bot.logger.error(
+            logger.error(
                 f"Error fetching MMR history for {name}#{tag}: {e}", exc_info=True
             )
             await interaction.followup.send(
