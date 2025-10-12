@@ -288,8 +288,8 @@ class BaseGameCog(commands.Cog):
             interaction: Discord interaction
             amount: Optional specific bet amount
             action: Optional percentage action (100%, 75%, 50%, 25%)
-            game_func: Async function(bot, interaction, user_id, amount, action, prev_balance)
-                      that executes the game
+            game_func: Async function(bot, user_id, amount, prev_balance)
+                        that executes the game and returns GameResult
             game_name: Game name for error messages
             balance: Optional pre-fetched balance (avoids extra DB call)
 
@@ -337,14 +337,37 @@ class BaseGameCog(commands.Cog):
         ):
             return
 
-        # Execute game with pre-fetched balance
-        await game_func(
+        # Execute game with generic handler
+        from utils.gambling_handler import execute_gambling_game, GameType
+
+        # Determine game type from game_name
+        game_type_map = {
+            "Roll": GameType.ROLL,
+            "Slots": GameType.SLOTS,
+            "Blackjack": GameType.BLACKJACK,
+            "Roulette": GameType.ROULETTE,
+        }
+        game_type = game_type_map.get(game_name, GameType.ROLL)
+
+        # Button labels map
+        button_labels = {
+            "Roll": "Roll Again",
+            "Slots": "Spin Again",
+            "Blackjack": "Play Again",
+            "Roulette": "Spin Again",
+        }
+
+        await execute_gambling_game(
             self.bot,
             interaction,
             user_id,
             amount,
-            action,
+            game_func=game_func,
+            game_type=game_type,
             prev_balance=balance,
+            add_play_again_button=True,
+            play_again_label=button_labels.get(game_name, "Play Again"),
+            action=action,
         )
 
     # ============ LOGGING/UTILITY ============

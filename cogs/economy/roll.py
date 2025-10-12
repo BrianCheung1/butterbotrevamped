@@ -1,29 +1,31 @@
+
 import random
 from datetime import datetime, timezone
 from typing import Optional
 
 import discord
-from constants.game_config import GameEventType
 from discord import app_commands
-from utils.balance_helper import calculate_percentage_amount, validate_amount
 from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
+from utils.gambling_handler import GameResult
 from logger import setup_logger
 
 logger = setup_logger("Roll")
 
 
-async def perform_roll(bot, interaction, user_id, amount, action, prev_balance=None):
-    """Execute a single roll game."""
-    if prev_balance is None:
-        prev_balance = await bot.database.user_db.get_balance(user_id)
+async def perform_roll(bot, user_id: int, amount: int, prev_balance: int) -> GameResult:
+    """
+    Execute a single roll game.
 
+    Returns GameResult with all necessary data for embed creation.
+    """
     MAX_ROLL = 100
     MIN_ROLL = 0
 
     user_roll = random.randint(MIN_ROLL, MAX_ROLL)
     dealer_roll = random.randint(MIN_ROLL, MAX_ROLL)
 
+    # Fetch stats
     stats_raw = await bot.database.game_db.get_user_game_stats(user_id)
     stats = dict(stats_raw.get("game_stats", {}))
 
@@ -35,31 +37,24 @@ async def perform_roll(bot, interaction, user_id, amount, action, prev_balance=N
     if user_roll > dealer_roll:
         result = "You win!"
         color = discord.Color.green()
-        final_balance = prev_balance + amount
         outcome = amount
         stats["rolls_won"] += 1
         win_status = True
     elif user_roll < dealer_roll:
         result = "You lose!"
         color = discord.Color.red()
-        final_balance = prev_balance - amount
         outcome = -amount
         stats["rolls_lost"] += 1
         win_status = False
     else:
         result = "It's a tie!"
         color = discord.Color.gold()
-        final_balance = prev_balance
         outcome = 0
         win_status = None
 
     tied_count = stats["rolls_played"] - stats["rolls_won"] - stats["rolls_lost"]
 
-    # Batch DB updates
-    await bot.database.user_db.increment_balance(user_id, outcome)
-    await bot.database.game_db.set_user_game_stats(
-        user_id, GameEventType.ROLL, win_status, amount
-    )
+    # Log roll history
     await bot.database.game_db.log_roll_history(
         user_id=user_id,
         user_roll=user_roll,
@@ -72,20 +67,9 @@ async def perform_roll(bot, interaction, user_id, amount, action, prev_balance=N
         amount=amount,
     )
 
-    # Create embed
-    cog = bot.cogs.get("Roll")
-    embed = cog.create_balance_embed(
-        title="🎲 Dice Roll Result",
-        description=f"You rolled: **{user_roll}**\nDealer rolled: **{dealer_roll}**\n\n**{result}**",
-        prev_balance=prev_balance,
-        new_balance=final_balance,
-        amount=amount,
-        color=color,
-        footer_text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count} | Total Played: {stats['rolls_played']}",
-    )
-
-    # Add roll history
+    # Fetch roll history for embed
     history = await bot.database.game_db.get_roll_history(user_id)
+    history_text = ""
     if history:
         history_lines = []
         for entry in history:
@@ -99,13 +83,18 @@ async def perform_roll(bot, interaction, user_id, amount, action, prev_balance=N
             history_lines.append(
                 f"{emoji} Bet: ${format_number(entry['amount'])} — <t:{unix_timestamp}:R>"
             )
+        history_text = "\n".join(history_lines)
 
-        embed.add_field(
-            name="Last 10 Rolls", value="\n".join(history_lines), inline=False
-        )
-
-    view = RollAgainView(bot, user_id, None if action else amount, action)
-    view.message = await interaction.edit_original_response(embed=embed, view=view)
+    return GameResult(
+        win_status=win_status,
+        outcome_amount=outcome,
+        title="🎲 Dice Roll Result",
+        description=f"You rolled: **{user_roll}**\nDealer rolled: **{dealer_roll}**\n\n**{result}**",
+        color=color,
+        footer_text=f"Rolls Won: {stats['rolls_won']} | Lost: {stats['rolls_lost']} | Tied: {tied_count} | Total Played: {stats['rolls_played']}",
+        extra_fields={"Last 10 Rolls": history_text} if history_text else None,
+        multiplier=1,
+    )
 
 
 class Roll(BaseGameCog):
@@ -139,54 +128,6 @@ class Roll(BaseGameCog):
             action.value if action else None,
             game_func=perform_roll,
             game_name="Roll",
-        )
-
-
-class RollAgainView(discord.ui.View):
-    def __init__(self, bot, user_id, amount, action):
-        super().__init__(timeout=300)
-        self.bot = bot
-        self.user_id = user_id
-        self.amount = amount
-        self.action = action
-
-    async def on_timeout(self):
-        try:
-            await self.message.edit(content="Roll game timed out.", view=None)
-        except discord.NotFound:
-            logger.debug("Message not found when disabling buttons.")
-
-    @discord.ui.button(label="Roll Again", style=discord.ButtonStyle.green)
-    async def roll_again(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        if interaction.user.id != self.user_id:
-            await interaction.followup.send(
-                content="You can't use this button.", ephemeral=True
-            )
-            return
-
-        await interaction.response.defer()
-
-        current_balance = await self.bot.database.user_db.get_balance(self.user_id)
-        amount = (
-            calculate_percentage_amount(current_balance, self.action)
-            if self.action
-            else self.amount
-        )
-
-        error = validate_amount(amount, current_balance)
-        if error:
-            await interaction.edit_original_response(content=error, view=None)
-            return
-
-        await perform_roll(
-            self.bot,
-            interaction,
-            self.user_id,
-            amount,
-            self.action,
-            prev_balance=current_balance,
         )
 
 
