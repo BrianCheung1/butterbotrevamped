@@ -7,7 +7,13 @@ from discord import app_commands
 from discord.ext import commands, tasks
 from utils.channels import broadcast_embed_to_guilds
 from utils.valorant_data_manager import RateLimitError
-from utils.valorant_helpers import get_rank_value, name_autocomplete, tag_autocomplete
+from utils.valorant_helpers import (
+    build_leaderboard_from_cache,
+    should_update_player,
+    get_rank_value,
+    name_autocomplete,
+    tag_autocomplete,
+)
 from logger import setup_logger
 
 logger = setup_logger("ValorantLeaderboard")
@@ -18,7 +24,6 @@ class ValorantLeaderboard(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        # Use centralized data manager
         self.data_manager = bot.valorant_data
 
         # Start background tasks
@@ -65,20 +70,7 @@ class ValorantLeaderboard(commands.Cog):
         # Get all players from thread-safe cache
         all_players = await self.bot.valorant_players.get_all()
 
-        leaderboard_data = [
-            {
-                "name": n,
-                "tag": t,
-                "rank": p["rank"],
-                "elo": p["elo"],
-            }
-            for (n, t), p in all_players.items()
-            if p["rank"].lower() != "unrated"
-        ]
-
-        leaderboard_data.sort(
-            key=lambda x: (get_rank_value(x["rank"]), x["elo"]), reverse=True
-        )
+        leaderboard_data = build_leaderboard_from_cache(all_players)
 
         view = ValorantLeaderboardView(
             leaderboard_data, interaction=None, timeout=86400
@@ -103,33 +95,11 @@ class ValorantLeaderboard(commands.Cog):
         deleted_count = 0
         error_count = 0
 
-        now = datetime.now(timezone.utc)
-        players_to_update = []
-
         # Filter players that need updating
-        for player in players:
-            last_updated = player.get("last_updated")
-            if last_updated is None:
-                players_to_update.append(player)
-                continue
-
-            try:
-                if isinstance(last_updated, str):
-                    last_updated = datetime.fromisoformat(
-                        last_updated.replace("Z", "+00:00")
-                    )
-                if last_updated.tzinfo is None:
-                    last_updated = last_updated.replace(tzinfo=timezone.utc)
-
-                if now - last_updated >= timedelta(hours=2):
-                    players_to_update.append(player)
-                else:
-                    skipped_count += 1
-            except Exception as e:
-                logger.warning(
-                    f"⚠️ Error parsing timestamp for {player['name']}#{player['tag']}: {e}"
-                )
-                players_to_update.append(player)
+        players_to_update = [
+            p for p in players if should_update_player(p.get("last_updated"), hours=2)
+        ]
+        skipped_count = len(players) - len(players_to_update)
 
         logger.info(
             f"📊 Players to update: {len(players_to_update)}, Skipped: {skipped_count}"
@@ -206,6 +176,7 @@ class ValorantLeaderboard(commands.Cog):
                     logger.error(
                         f"Error deleting batch from database: {e}", exc_info=True
                     )
+
             if batch_num < len(batches):
                 await asyncio.sleep(60)
 
@@ -238,20 +209,9 @@ class ValorantLeaderboard(commands.Cog):
         # Get all players from thread-safe cache
         all_players = await self.bot.valorant_players.get_all()
 
-        leaderboard_data = [
-            {
-                "name": n,
-                "tag": t,
-                "rank": p["rank"],
-                "elo": p["elo"],
-            }
-            for (n, t), p in all_players.items()
-            if p["rank"].lower() != "unrated"
-        ]
-
-        leaderboard_data.sort(
-            key=lambda x: (get_rank_value(x["rank"]), x["elo"]), reverse=True
-        )
+        # === REFACTORED: Use consolidated helper ===
+        leaderboard_data = build_leaderboard_from_cache(all_players)
+        # ===========================================
 
         # If specific player requested
         if name and tag:
@@ -280,6 +240,8 @@ class ValorantLeaderboard(commands.Cog):
 
 
 class ValorantLeaderboardView(discord.ui.View):
+    """View for paginated leaderboard display."""
+
     def __init__(
         self,
         data: List[dict],

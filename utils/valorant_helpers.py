@@ -1,12 +1,13 @@
-from datetime import datetime, timezone
-from typing import Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Tuple, Optional, Dict
+from collections import defaultdict
 
 import discord
 from constants.valorant_config import RANK_ORDER
 from discord.app_commands import Choice
 from logger import setup_logger
 
-logger = setup_logger("Butterbot")
+logger = setup_logger("ValorantHelpers")
 
 
 def convert_to_datetime(date_str: str) -> datetime:
@@ -60,7 +61,6 @@ def parse_player_rank(current_data: dict) -> Tuple[str, int, int]:
     """
     Parse player rank information from current MMR data.
 
-
     Args:
         current_data: Current player data dict from API
 
@@ -91,10 +91,63 @@ def parse_player_rank(current_data: dict) -> Tuple[str, int, int]:
         raise ValueError(f"Invalid current_data structure: {e}")
 
 
+def should_update_player(last_updated_str: Optional[str], hours: int = 2) -> bool:
+    """
+    Check if a player's MMR needs updating based on last update time.
+
+    Args:
+        last_updated_str: ISO 8601 datetime string from database
+        hours: Update threshold in hours (default 2)
+
+    Returns:
+        bool: True if player needs updating, False otherwise
+    """
+    if not last_updated_str:
+        return True
+
+    try:
+        last_updated = datetime.fromisoformat(last_updated_str.replace("Z", "+00:00"))
+        if last_updated.tzinfo is None:
+            last_updated = last_updated.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+        return now - last_updated >= timedelta(hours=hours)
+    except Exception as e:
+        logger.warning(f"Error parsing update timestamp: {e}")
+        return True
+
+
+def build_leaderboard_from_cache(all_players: dict) -> list[dict]:
+    """
+    Build sorted leaderboard from player cache.
+
+    Args:
+        all_players: Dict mapping (name, tag) -> {rank, elo, ...}
+
+    Returns:
+        List of player dicts sorted by rank and elo (descending)
+    """
+    leaderboard_data = [
+        {
+            "name": n,
+            "tag": t,
+            "rank": p["rank"],
+            "elo": p["elo"],
+        }
+        for (n, t), p in all_players.items()
+        if p["rank"].lower() != "unrated"
+    ]
+
+    leaderboard_data.sort(
+        key=lambda x: (get_rank_value(x["rank"]), x["elo"]), reverse=True
+    )
+
+    return leaderboard_data
+
+
 async def load_cached_players_from_db(db):
     """
     Load cached players from the database on bot startup.
-
 
     Args:
         db: Database manager instance
@@ -168,3 +221,123 @@ async def tag_autocomplete(interaction: discord.Interaction, current: str):
     except Exception as e:
         logger.warning(f"Error in tag_autocomplete: {e}")
         return []
+
+
+def extract_match_stats_default() -> dict:
+    """Return default match stats structure."""
+    return {
+        "player_fb": 0,
+        "player_fd": 0,
+        "all_player_acs": {},
+        "all_player_fb_fd": {},
+        "player_placement": None,
+    }
+
+
+async def extract_match_player_stats(
+    match_data: dict, player_puuid: Optional[str] = None
+) -> dict:
+    """
+    Extract all player stats from a match in a single pass.
+
+    Consolidates extraction of:
+    - First blood/death counts (per player and for specific player)
+    - ACS (combat score) for all players
+    - Player placement by ACS ranking
+
+    Args:
+        match_data: Full match data from Valorant API
+        player_puuid: Optional PUUID of specific player to track
+
+    Returns:
+        Dict with keys:
+        - player_fb (int): First bloods for player_puuid
+        - player_fd (int): First deaths for player_puuid
+        - all_player_acs (dict): {puuid: acs_score}
+        - all_player_fb_fd (dict): {puuid: {fb: count, fd: count}}
+        - player_placement (int or None): 1-10 placement by ACS
+    """
+    if not match_data or "data" not in match_data:
+        return extract_match_stats_default()
+
+    try:
+        match_info = match_data["data"]
+        rounds = match_info.get("rounds", [])
+
+        # Initialize trackers
+        all_player_acs = {}
+        all_player_fb_fd = defaultdict(lambda: {"fb": 0, "fd": 0})
+        player_fb = 0
+        player_fd = 0
+
+        # === Extract ACS for all players ===
+        teams = match_info.get("teams", {})
+        total_rounds = (
+            sum(m.get("rounds_won", 0) for m in teams.values() if isinstance(m, dict))
+            or 1
+        )
+
+        players_data = match_info.get("players", {})
+        if isinstance(players_data, dict):
+            all_players = players_data.get("all_players", [])
+        else:
+            all_players = players_data or []
+
+        for player in all_players:
+            puuid = player.get("puuid", "")
+            score = player.get("stats", {}).get("score", 0)
+            acs = round(score / total_rounds) if total_rounds > 0 else 0
+            if puuid:
+                all_player_acs[puuid] = acs
+
+        # === Extract first blood data from rounds ===
+        for round_data in rounds:
+            kill_events = []
+            for player_stat in round_data.get("player_stats", []):
+                kill_events.extend(player_stat.get("kill_events", []))
+
+            if not kill_events:
+                continue
+
+            # Find first kill of round
+            sorted_kills = sorted(
+                kill_events,
+                key=lambda k: k.get("kill_time_in_round", float("inf")),
+            )
+            first_kill = sorted_kills[0]
+
+            killer_puuid = first_kill.get("killer_puuid")
+            victim_puuid = first_kill.get("victim_puuid")
+
+            if killer_puuid:
+                all_player_fb_fd[killer_puuid]["fb"] += 1
+                if killer_puuid == player_puuid:
+                    player_fb += 1
+
+            if victim_puuid:
+                all_player_fb_fd[victim_puuid]["fd"] += 1
+                if victim_puuid == player_puuid:
+                    player_fd += 1
+
+        # === Calculate placement ===
+        player_placement = None
+        if player_puuid and all_player_acs:
+            sorted_players = sorted(
+                all_player_acs.items(), key=lambda x: x[1], reverse=True
+            )
+            for placement, (puuid, _) in enumerate(sorted_players, 1):
+                if puuid == player_puuid:
+                    player_placement = placement
+                    break
+
+        return {
+            "player_fb": player_fb,
+            "player_fd": player_fd,
+            "all_player_acs": all_player_acs,
+            "all_player_fb_fd": dict(all_player_fb_fd),
+            "player_placement": player_placement,
+        }
+
+    except Exception as e:
+        logger.error(f"Error extracting match stats: {e}", exc_info=True)
+        return extract_match_stats_default()

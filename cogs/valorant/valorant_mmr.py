@@ -17,6 +17,8 @@ from utils.valorant_helpers import (
     tag_autocomplete,
 )
 from logger import setup_logger
+from utils.pagination import PaginatedView
+
 
 logger = setup_logger("ValorantMMR")
 
@@ -360,50 +362,31 @@ class ValorantMMRHistory(commands.Cog):
             )
 
 
-class PaginatedMMRView(discord.ui.View):
-    def __init__(self, pages: list[discord.Embed], user_id: int, timeout=180):
-        super().__init__(timeout=timeout)
-        self.pages = pages
-        self.current_page = 0
+class PaginatedMMRView(PaginatedView):
+    """
+    Simplified paginated view for MMR history using unified PaginatedView.
+
+    Now just handles user authorization - pagination logic is inherited.
+    """
+
+    def __init__(self, pages: list[discord.Embed], user_id: int, timeout: float = 180):
+        # Create dummy data for pagination logic (pages.length items)
+        dummy_data = [None] * len(pages)
+
+        # Initialize parent with pre-built embeds
+        # interaction=None means no user restriction (anyone can use)
+        super().__init__(
+            data=dummy_data,
+            interaction=None,  # No user restriction
+            pre_built_embeds=pages,
+            timeout=timeout,
+        )
+
         self.user_id = user_id
 
-        # Disable buttons if needed
-        self.update_buttons()
-
-    def update_buttons(self):
-        """Update button states based on current page."""
-        self.go_previous.disabled = self.current_page == 0
-        self.go_next.disabled = self.current_page == len(self.pages) - 1
-
-    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.gray)
-    async def go_previous(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        if interaction.user.id != self.user_id:
-            return await interaction.response.send_message(
-                "You can't use this button.", ephemeral=True
-            )
-
-        self.current_page -= 1
-        self.update_buttons()
-        await interaction.response.edit_message(
-            embed=self.pages[self.current_page], view=self
-        )
-
-    @discord.ui.button(label="➡️ Next", style=discord.ButtonStyle.gray)
-    async def go_next(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        if interaction.user.id != self.user_id:
-            return await interaction.response.send_message(
-                "You can't use this button.", ephemeral=True
-            )
-
-        self.current_page += 1
-        self.update_buttons()
-        await interaction.response.edit_message(
-            embed=self.pages[self.current_page], view=self
-        )
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Allow only the requesting user to use pagination."""
+        return interaction.user.id == self.user_id
 
 
 async def setup(bot: commands.Bot):
