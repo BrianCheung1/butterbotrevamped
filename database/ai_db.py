@@ -8,9 +8,7 @@ logger = setup_logger("AIDatabaseManager")
 
 
 class AIDatabaseManager:
-    """Manager for AI interaction database operations."""
-
-    def __init__(self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"):
+    def __init__(self, connection: aiosqlite.Connection, db_manager):
         self.connection = connection
         self.db_manager = db_manager
 
@@ -105,7 +103,7 @@ class AIDatabaseManager:
         try:
             cursor = await self.connection.execute(
                 """
-                SELECT 
+                SELECT
                     COUNT(*) as total_interactions,
                     MIN(timestamp) as first_interaction,
                     MAX(timestamp) as last_interaction

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional
 from collections import defaultdict
 
 import discord

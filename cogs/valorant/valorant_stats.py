@@ -1,7 +1,7 @@
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import discord
 from discord import app_commands

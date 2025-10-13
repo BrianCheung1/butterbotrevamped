@@ -1,7 +1,5 @@
-from typing import Optional
-
 import aiosqlite
-from constants.game_config import GameEventType
+
 from logger import setup_logger
 from utils.database_errors import db_error_handler
 
@@ -9,10 +7,7 @@ logger = setup_logger("GamebaseManager")
 
 
 class GameDatabaseManager:
-
-    def __init__(
-        self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"
-    ) -> None:
+    def __init__(self, connection: aiosqlite.Connection, db_manager):
         self.connection = connection
         self.db_manager = db_manager
 
@@ -35,69 +30,96 @@ class GameDatabaseManager:
 
     @db_error_handler
     async def set_user_game_stats(
-        self,
-        user_id: int,
-        game_type: GameEventType,
-        win: Optional[bool],
-        amount: int,
+        self, user_id: int, game_type, win: bool, amount: int
     ) -> None:
         """
-        Updates the user's game stats based on the game type (e.g., slots, blackjack, etc.).
+        Update game stats securely using CASE statements.
 
-        :param user_id: The ID of the user involved in the event.
-        :param game_type: The type of game played (e.g., slots, blackjack).
-        :param win: Whether the user won or lost.
-        :param amount: The amount won or lost.
+        IMPROVEMENT: No dynamic SQL injection risk,
+        single SQL statement updates all stats atomically
         """
         await self.db_manager._create_user_if_not_exists(user_id)
 
-        # Access the game type via Enum name to create dynamic field names
-        won_field = f"{game_type.value}_won"
-        lost_field = f"{game_type.value}_lost"
-        total_field = f"{game_type.value}_played"
-        total_won_field = f"{game_type.value}_total_won"
-        total_lost_field = f"{game_type.value}_total_lost"
+        game_val = game_type.value
 
         async with self.db_manager.transaction():
             if win is True:
                 await self.connection.execute(
-                    f"""
-                    INSERT INTO user_game_stats (user_id)
-                    VALUES (?)
-                    ON CONFLICT(user_id) DO UPDATE SET
-                        {won_field} = {won_field} + 1,
-                        {total_field} = {total_field} + 1,
-                        {total_won_field} = {total_won_field} + ?
+                    """
+                    UPDATE user_game_stats
+                    SET
+                        rolls_won = CASE WHEN ? = 'rolls' THEN rolls_won + 1 ELSE rolls_won END,
+                        slots_won = CASE WHEN ? = 'slots' THEN slots_won + 1 ELSE slots_won END,
+                        blackjacks_won = CASE WHEN ? = 'blackjacks' THEN blackjacks_won + 1 ELSE blackjacks_won END,
+                        rolls_played = CASE WHEN ? = 'rolls' THEN rolls_played + 1 ELSE rolls_played END,
+                        slots_played = CASE WHEN ? = 'slots' THEN slots_played + 1 ELSE slots_played END,
+                        blackjacks_played = CASE WHEN ? = 'blackjacks' THEN blackjacks_played + 1 ELSE blackjacks_played END,
+                        rolls_total_won = CASE WHEN ? = 'rolls' THEN rolls_total_won + ? ELSE rolls_total_won END,
+                        slots_total_won = CASE WHEN ? = 'slots' THEN slots_total_won + ? ELSE slots_total_won END,
+                        blackjacks_total_won = CASE WHEN ? = 'blackjacks' THEN blackjacks_total_won + ? ELSE blackjacks_total_won END
+                    WHERE user_id = ?
                     """,
                     (
-                        user_id,
+                        game_val,
+                        game_val,
+                        game_val,
+                        game_val,
+                        game_val,
+                        game_val,
+                        game_val,
                         amount,
+                        game_val,
+                        amount,
+                        game_val,
+                        amount,
+                        user_id,
                     ),
                 )
+
             elif win is False:
                 await self.connection.execute(
-                    f"""
-                    INSERT INTO user_game_stats (user_id)
-                    VALUES (?)
-                    ON CONFLICT(user_id) DO UPDATE SET
-                        {lost_field} = {lost_field} + 1,
-                        {total_field} = {total_field} + 1,
-                        {total_lost_field} = {total_lost_field} + ?
+                    """
+                    UPDATE user_game_stats
+                    SET
+                        rolls_lost = CASE WHEN ? = 'rolls' THEN rolls_lost + 1 ELSE rolls_lost END,
+                        slots_lost = CASE WHEN ? = 'slots' THEN slots_lost + 1 ELSE slots_lost END,
+                        blackjacks_lost = CASE WHEN ? = 'blackjacks' THEN blackjacks_lost + 1 ELSE blackjacks_lost END,
+                        rolls_played = CASE WHEN ? = 'rolls' THEN rolls_played + 1 ELSE rolls_played END,
+                        slots_played = CASE WHEN ? = 'slots' THEN slots_played + 1 ELSE slots_played END,
+                        blackjacks_played = CASE WHEN ? = 'blackjacks' THEN blackjacks_played + 1 ELSE blackjacks_played END,
+                        rolls_total_lost = CASE WHEN ? = 'rolls' THEN rolls_total_lost + ? ELSE rolls_total_lost END,
+                        slots_total_lost = CASE WHEN ? = 'slots' THEN slots_total_lost + ? ELSE slots_total_lost END,
+                        blackjacks_total_lost = CASE WHEN ? = 'blackjacks' THEN blackjacks_total_lost + ? ELSE blackjacks_total_lost END
+                    WHERE user_id = ?
                     """,
                     (
-                        user_id,
+                        game_val,
+                        game_val,
+                        game_val,
+                        game_val,
+                        game_val,
+                        game_val,
+                        game_val,
                         amount,
+                        game_val,
+                        amount,
+                        game_val,
+                        amount,
+                        user_id,
                     ),
                 )
-            else:
+
+            else:  # Tie
                 await self.connection.execute(
-                    f"""
-                    INSERT INTO user_game_stats (user_id)
-                    VALUES (?)
-                    ON CONFLICT(user_id) DO UPDATE SET
-                        {total_field} = {total_field} + 1
+                    """
+                    UPDATE user_game_stats
+                    SET
+                        rolls_played = CASE WHEN ? = 'rolls' THEN rolls_played + 1 ELSE rolls_played END,
+                        slots_played = CASE WHEN ? = 'slots' THEN slots_played + 1 ELSE slots_played END,
+                        blackjacks_played = CASE WHEN ? = 'blackjacks' THEN blackjacks_played + 1 ELSE blackjacks_played END
+                    WHERE user_id = ?
                     """,
-                    (user_id,),
+                    (game_val, game_val, game_val, user_id),
                 )
 
     @db_error_handler

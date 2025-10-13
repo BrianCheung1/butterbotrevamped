@@ -8,9 +8,7 @@ logger = setup_logger("HeistDatabaseManager")
 
 
 class HeistDatabaseManager:
-    def __init__(
-        self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"
-    ) -> None:
+    def __init__(self, connection: aiosqlite.Connection, db_manager):
         self.connection = connection
         self.db_manager = db_manager
 

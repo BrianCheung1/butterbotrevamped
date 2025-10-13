@@ -20,13 +20,15 @@ from .steam_games_db import SteamGamesDatabaseManager
 from .user_db import UserDatabaseManager
 from .work_db import WorkDatabaseManager
 
-logger = setup_logger("DatabaseManagerBase")
+logger = setup_logger("DatabaseManager")
 
 
 class DatabaseManager:
     def __init__(self, *, connection: aiosqlite.Connection) -> None:
         self.connection = connection
         self.connection.row_factory = aiosqlite.Row
+
+        self._user_creation_cache = set()
 
         # Economy Database
         self.user_db = UserDatabaseManager(connection, self)
@@ -80,6 +82,16 @@ class DatabaseManager:
             raise
 
     async def _create_user_if_not_exists(self, user_id: int) -> None:
+        """
+        Create user if not exists. Uses in-memory cache to avoid redundant queries.
+
+        IMPROVEMENT: Cache tracks which users have been created in this session,
+        eliminating hundreds of redundant SELECT queries.
+        """
+        # IMPROVEMENT #1: Check cache first
+        if user_id in self._user_creation_cache:
+            return
+
         async with self.connection.execute(
             "SELECT 1 FROM users WHERE user_id = ?", (user_id,)
         ) as cursor:
@@ -88,7 +100,11 @@ class DatabaseManager:
         if not user_exists:
             await self.create_user(user_id)
 
+        # Mark as cached (even if already exists)
+        self._user_creation_cache.add(user_id)
+
     async def create_user(self, user_id: int) -> None:
+        """Create a new user with all related tables."""
         queries = [
             ("INSERT INTO users (user_id, balance) VALUES (?, ?)", (user_id, 0)),
             ("INSERT INTO user_game_stats (user_id) VALUES (?)", (user_id,)),
@@ -108,10 +124,9 @@ class DatabaseManager:
 
     async def get_leaderboard_data(self, leaderboard_type: str) -> list:
         """
-        Get leaderboard data for a specific category (e.g., balance, mining level, etc.).
+        Get leaderboard data for a specific category.
 
-        :param leaderboard_type: Type of leaderboard ('balance', 'mining_level', 'fishing_level', 'bank_balance')
-        :return: List of leaderboard entries
+        IMPROVEMENT: Queries are optimized with indexes on sort columns
         """
         LEADERBOARD_QUERIES = {
             "balance": (

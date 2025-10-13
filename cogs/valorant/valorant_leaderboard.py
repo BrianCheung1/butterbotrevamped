@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, time, timedelta, timezone
+from datetime import time
 from typing import List, Optional
 
 import discord
@@ -10,7 +10,6 @@ from utils.valorant_data_manager import RateLimitError
 from utils.valorant_helpers import (
     build_leaderboard_from_cache,
     should_update_player,
-    get_rank_value,
     name_autocomplete,
     tag_autocomplete,
 )

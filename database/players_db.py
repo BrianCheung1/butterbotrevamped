@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import aiosqlite
 from logger import setup_logger
@@ -10,11 +10,7 @@ logger = setup_logger("PlayersDatabaseManager")
 
 
 class PlayersDatabaseManager:
-    def __init__(
-        self,
-        connection: aiosqlite.Connection,
-        db_manager: "DatabaseManager",
-    ):
+    def __init__(self, connection: aiosqlite.Connection, db_manager):
         self.connection = connection
         self.db_manager = db_manager
 
@@ -78,47 +74,48 @@ class PlayersDatabaseManager:
             return cursor.rowcount > 0
 
     @db_error_handler
-    async def batch_save_players(
-        self, players: List[Tuple[str, str, str, int]]
-    ) -> None:
+    async def batch_save_players(self, players: list) -> None:
         """
         Batch insert/update multiple players efficiently.
 
-        Args:
-            players: List of (name, tag, rank, elo) tuples
+        IMPROVEMENT: Single executemany() instead of loop,
+        minimizes lock time and transaction overhead
         """
         if not players:
             return
 
+        # Normalize data
+        normalized = [
+            (name.lower(), tag.lower(), rank, elo) for name, tag, rank, elo in players
+        ]
+
         async with self.db_manager.transaction():
-            for name, tag, rank, elo in players:
-                name, tag = name.lower(), tag.lower()
-                await self.connection.execute(
-                    """
-                    INSERT INTO players (name, tag, rank, elo, last_updated)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    ON CONFLICT(name, tag) DO UPDATE SET
-                        rank = excluded.rank,
-                        elo = excluded.elo,
-                        last_updated = CURRENT_TIMESTAMP
-                    """,
-                    (name, tag, rank, elo),
-                )
+            await self.connection.executemany(
+                """
+                INSERT INTO players (name, tag, rank, elo, last_updated)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(name, tag) DO UPDATE SET
+                    rank = excluded.rank,
+                    elo = excluded.elo,
+                    last_updated = CURRENT_TIMESTAMP
+                """,
+                normalized,
+            )
 
     @db_error_handler
-    async def batch_delete_players(self, players: List[Tuple[str, str]]) -> None:
+    async def batch_delete_players(self, players: list) -> None:
         """
         Batch delete multiple players efficiently.
 
-        Args:
-            players: List of (name, tag) tuples
+        IMPROVEMENT: executemany() in single transaction
         """
         if not players:
             return
 
+        normalized = [(name.lower(), tag.lower()) for name, tag in players]
+
         async with self.db_manager.transaction():
-            for name, tag in players:
-                name, tag = name.lower(), tag.lower()
-                await self.connection.execute(
-                    "DELETE FROM players WHERE name = ? AND tag = ?", (name, tag)
-                )
+            await self.connection.executemany(
+                "DELETE FROM players WHERE name = ? AND tag = ?",
+                normalized,
+            )

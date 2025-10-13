@@ -8,7 +8,7 @@ logger = setup_logger("SteamGamesDatabaseManager")
 
 
 class SteamGamesDatabaseManager:
-    def __init__(self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"):
+    def __init__(self, connection: aiosqlite.Connection, db_manager):
         self.connection = connection
         self.db_manager = db_manager
 

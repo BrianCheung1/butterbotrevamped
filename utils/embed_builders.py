@@ -51,4 +51,3 @@ def build_transaction_embed(
         ),
         color=discord.Color.green(),
     )
-

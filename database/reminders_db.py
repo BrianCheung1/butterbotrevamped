@@ -11,7 +11,8 @@ logger = setup_logger("RemindersDatabaseManager")
 
 
 class RemindersDatabaseManager:
-    def __init__(self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"):
+
+    def __init__(self, connection: aiosqlite.Connection, db_manager):
         self.connection = connection
         self.db_manager = db_manager
 

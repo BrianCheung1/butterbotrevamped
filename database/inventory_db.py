@@ -10,9 +10,7 @@ logger = setup_logger("InventoryDatabaseManager")
 
 
 class InventoryDatabaseManager:
-    def __init__(
-        self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"
-    ) -> None:
+    def __init__(self, connection: aiosqlite.Connection, db_manager):
         self.connection = connection
         self.db_manager = db_manager
 

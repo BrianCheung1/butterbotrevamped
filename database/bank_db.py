@@ -6,9 +6,8 @@ logger = setup_logger("BankDatabaseManager")
 
 
 class BankDatabaseManager:
-    def __init__(
-        self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"
-    ) -> None:
+
+    def __init__(self, connection: aiosqlite.Connection, db_manager):
         self.connection = connection
         self.db_manager = db_manager
 

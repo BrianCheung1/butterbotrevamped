@@ -1,6 +1,5 @@
 import datetime
 from datetime import timezone
-from typing import Optional
 
 import aiosqlite
 from logger import setup_logger
@@ -10,9 +9,8 @@ logger = setup_logger("BuffsDatabaseManager")
 
 
 class BuffsDatabaseManager:
-    def __init__(
-        self, connection: aiosqlite.Connection, db_manager: "DatabaseManager"
-    ) -> None:
+
+    def __init__(self, connection: aiosqlite.Connection, db_manager):
         self.connection = connection
         self.db_manager = db_manager
 
