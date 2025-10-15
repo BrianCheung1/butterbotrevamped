@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 import aiosqlite
 from logger import setup_logger
@@ -38,7 +38,7 @@ class AIDatabaseManager:
                         user_id,
                         user_message,
                         bot_response,
-                        datetime.utcnow().isoformat(),
+                        datetime.now(timezone.utc).isoformat(),
                     ),
                 )
             logger.info(f"✅ Logged interaction for user {user_id}")

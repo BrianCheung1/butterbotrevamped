@@ -5,5 +5,5 @@ class GameEventType(Enum):
     """Enum for different types of games."""
 
     BLACKJACK = "blackjacks"
-    SLOT = "slots"
+    SLOTS = "slots"
     ROLL = "rolls"

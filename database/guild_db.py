@@ -11,6 +11,15 @@ class GuildSettingsDatabaseManager:
         self.connection = connection
         self.db_manager = db_manager
 
+        self.COLUMN_MAP = {
+            "interest_channel_id": "interest_channel_id",
+            "patchnotes_channel_id": "patchnotes_channel_id",
+            "steam_games_channel_id": "steam_games_channel_id",
+            "leaderboard_announcements_channel_id": "leaderboard_announcements_channel_id",
+            "mod_log_channel_id": "mod_log_channel_id",
+            "osrs_channel_id": "osrs_channel_id",
+        }
+
     def _validate_channel_type(self, channel_type: str) -> None:
         """
         Validate that the channel type is supported.
@@ -26,6 +35,27 @@ class GuildSettingsDatabaseManager:
                 f"Invalid channel_type '{channel_type}'. "
                 f"Valid types: {', '.join(sorted(VALID_CHANNEL_TYPES))}"
             )
+
+    def _get_safe_column_name(self, channel_type: str) -> str:
+        """
+        Get the safe column name from the whitelist.
+        Raises KeyError if channel_type not in whitelist.
+
+        Args:
+            channel_type: The database field name
+
+        Returns:
+            The safe column name (guaranteed to be valid)
+
+        Raises:
+            KeyError: If channel_type is not in the whitelist
+        """
+        if channel_type not in self.COLUMN_MAP:
+            raise KeyError(
+                f"Channel type '{channel_type}' is not in the whitelist. "
+                f"This is a bug - validation should have caught this!"
+            )
+        return self.COLUMN_MAP[channel_type]
 
     @db_error_handler
     async def set_channel(
@@ -46,14 +76,15 @@ class GuildSettingsDatabaseManager:
             ValueError: If channel_type is invalid
         """
         self._validate_channel_type(channel_type)
+        column_name = self._get_safe_column_name(channel_type)
 
         try:
             async with self.db_manager.transaction():
                 await self.connection.execute(
                     f"""
-                    INSERT INTO guild_settings (guild_id, {channel_type})
+                    INSERT INTO guild_settings (guild_id, {column_name})
                     VALUES (?, ?)
-                    ON CONFLICT(guild_id) DO UPDATE SET {channel_type} = excluded.{channel_type}
+                    ON CONFLICT(guild_id) DO UPDATE SET {column_name} = excluded.{column_name}
                     """,
                     (guild_id, channel_id),
                 )
@@ -81,10 +112,11 @@ class GuildSettingsDatabaseManager:
             ValueError: If channel_type is invalid
         """
         self._validate_channel_type(channel_type)
+        column_name = self._get_safe_column_name(channel_type)
 
         try:
             async with self.connection.execute(
-                f"SELECT {channel_type} FROM guild_settings WHERE guild_id = ?",
+                f"SELECT {column_name} FROM guild_settings WHERE guild_id = ?",
                 (guild_id,),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -143,14 +175,15 @@ class GuildSettingsDatabaseManager:
             ValueError: If channel_type is invalid
         """
         self._validate_channel_type(channel_type)
+        column_name = self._get_safe_column_name(channel_type)
 
         try:
             async with self.db_manager.transaction():
                 cursor = await self.connection.execute(
                     f"""
                     UPDATE guild_settings
-                    SET {channel_type} = NULL
-                    WHERE guild_id = ? AND {channel_type} IS NOT NULL
+                    SET {column_name} = NULL
+                    WHERE guild_id = ? AND {column_name} IS NOT NULL
                     """,
                     (guild_id,),
                 )
@@ -204,10 +237,9 @@ class GuildSettingsDatabaseManager:
         """
         try:
             async with self.db_manager.transaction():
-                # Build dynamic SET clause for all channel fields
-                set_clause = ", ".join(
-                    f"{field} = NULL" for field in VALID_CHANNEL_TYPES
-                )
+                # Build dynamic SET clause for all channel fields using whitelist
+                set_clauses = [f"{col} = NULL" for col in self.COLUMN_MAP.values()]
+                set_clause = ", ".join(set_clauses)
 
                 await self.connection.execute(
                     f"""

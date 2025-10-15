@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     patchnotes_channel_id INTEGER,
     steam_games_channel_id INTEGER,
     leaderboard_announcements_channel_id INTEGER,
-    mod_log_channel_id INTEGER
+    mod_log_channel_id INTEGER,
     osrs_channel_id INTEGER
 );
 
@@ -235,3 +235,11 @@ CREATE TABLE IF NOT EXISTS message_logs (
     edited_after TEXT DEFAULT NULL,          -- Message content after edit (NULL if not edited)
     edited_at TIMESTAMP DEFAULT NULL         -- When the message was last edited
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id);
+CREATE INDEX IF NOT EXISTS idx_game_stats_user_id ON user_game_stats(user_id);
+CREATE INDEX IF NOT EXISTS idx_roll_history_user_id_timestamp ON roll_history(user_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_interactions_user_id_timestamp ON interactions(user_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_reminders_remind_at ON reminders(remind_at);
+CREATE INDEX IF NOT EXISTS idx_message_logs_created_at ON message_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_players_name_tag ON players(name, tag);

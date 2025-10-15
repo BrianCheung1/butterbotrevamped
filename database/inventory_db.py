@@ -98,10 +98,13 @@ class InventoryDatabaseManager:
         Sets the equipped tool for a user. Removes 1 from inventory and equips the tool.
         If tool_name is None, sets the equipped tool to NULL and does not return a tool to inventory.
 
+        ✅ FIXED: Now uses atomic operations to prevent race conditions
+
         :param user_id: Discord user ID.
         :param tool_type: Either 'pickaxe' or 'fishingrod'.
         :param tool_name: The name of the tool to equip or None to unequip.
         :return: The name of the previously equipped tool (if any), else None.
+        :raises ValueError: If tool_type is invalid or if trying to equip unavailable tool
         """
         if tool_type not in ("pickaxe", "fishingrod"):
             raise ValueError("tool_type must be either 'pickaxe' or 'fishingrod'")
@@ -109,7 +112,7 @@ class InventoryDatabaseManager:
         await self.db_manager._create_user_if_not_exists(user_id)
 
         async with self.db_manager.transaction():
-            # Fetch current equipped tool
+            # ===== STEP 1: Fetch current equipped tool =====
             async with self.connection.execute(
                 f"SELECT {tool_type} FROM user_equipped_tools WHERE user_id = ?",
                 (user_id,),
@@ -120,7 +123,7 @@ class InventoryDatabaseManager:
                 equipped_row[0] if equipped_row and equipped_row[0] else None
             )
 
-            # Handle unequip (tool_name is None)
+            # ===== STEP 2: Handle unequip (tool_name is None) =====
             if tool_name is None:
                 if equipped_row:
                     await self.connection.execute(
@@ -134,29 +137,47 @@ class InventoryDatabaseManager:
                     )
                 return previous_tool
 
-            # Prevent unnecessary work if tool is already equipped
+            # ===== STEP 3: Prevent unnecessary work if tool is already equipped =====
             if previous_tool == tool_name:
                 return previous_tool
 
-            # Ensure the user has the tool
+            # ===== STEP 4: ATOMIC UPDATE - Ensure tool exists AND decrement in one operation =====
             async with self.connection.execute(
-                "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ?",
+                """
+                UPDATE user_inventory 
+                SET quantity = quantity - 1 
+                WHERE user_id = ? AND item_name = ? AND quantity > 0
+                """,
                 (user_id, tool_name),
             ) as cursor:
-                row = await cursor.fetchone()
+                rows_affected = cursor.rowcount
 
-            if not row or row[0] < 1:
-                raise ValueError(
-                    f"User does not have '{tool_name}' in their inventory."
-                )
+            # If no rows were affected, the tool doesn't exist or is out of stock
+            if rows_affected == 0:
+                # Check if it exists but is out of stock
+                async with self.connection.execute(
+                    "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ?",
+                    (user_id, tool_name),
+                ) as cursor:
+                    check_row = await cursor.fetchone()
 
-            # Remove the tool from inventory
+                if check_row:
+                    raise ValueError(
+                        f"User has no available '{tool_name}' in their inventory (quantity: {check_row[0]})"
+                    )
+                else:
+                    raise ValueError(
+                        f"User does not have '{tool_name}' in their inventory."
+                    )
+
+            # ===== STEP 5: Delete inventory row if quantity is now 0 =====
+            # Check if the quantity is now 0 and delete if so
             await self.connection.execute(
-                "UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = ? AND item_name = ?",
+                "DELETE FROM user_inventory WHERE user_id = ? AND item_name = ? AND quantity <= 0",
                 (user_id, tool_name),
             )
 
-            # Equip the new tool
+            # ===== STEP 6: Update equipped tool =====
             if equipped_row:
                 await self.connection.execute(
                     f"UPDATE user_equipped_tools SET {tool_type} = ? WHERE user_id = ?",
@@ -168,7 +189,7 @@ class InventoryDatabaseManager:
                     (user_id, tool_name),
                 )
 
-            # Return the previously equipped tool to inventory (if any)
+            # ===== STEP 7: Return previously equipped tool to inventory (if any) =====
             if previous_tool:
                 await self.connection.execute(
                     """
@@ -179,6 +200,10 @@ class InventoryDatabaseManager:
                     """,
                     (user_id, previous_tool),
                 )
+
+            logger.info(
+                f"User {user_id} equipped {tool_name} (was: {previous_tool}) for {tool_type}"
+            )
 
             return previous_tool
 

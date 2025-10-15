@@ -96,7 +96,7 @@ class MessageLogger(commands.Cog):
                 f"**After:**\n{after.content or '*No content*'}"
             ),
             color=discord.Color.orange(),
-            timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+            timestamp=datetime.now(timezone.utc)
         )
         embed.set_author(
             name=str(before.author), icon_url=before.author.display_avatar.url
@@ -132,7 +132,7 @@ class MessageLogger(commands.Cog):
                 )
             ),
             color=discord.Color.red(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.set_author(
             name=str(message.author), icon_url=message.author.display_avatar.url

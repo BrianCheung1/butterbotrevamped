@@ -1,5 +1,4 @@
-import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands
@@ -16,7 +15,7 @@ class RoleLogger(commands.Cog):
             title="➕ Role Created",
             description=f"Role **{role.name}** (`{role.id}`) was created.",
             color=discord.Color.green(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         await send_to_mod_log(self.bot, role.guild, embed)
 
@@ -26,7 +25,7 @@ class RoleLogger(commands.Cog):
             title="➖ Role Deleted",
             description=f"Role **{role.name}** (`{role.id}`) was deleted.",
             color=discord.Color.red(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         await send_to_mod_log(self.bot, role.guild, embed)
 
@@ -56,7 +55,7 @@ class RoleLogger(commands.Cog):
             title="✏️ Role Updated",
             description=f"Role **{after.name}** (`{after.id}`) was updated.",
             color=discord.Color.orange(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Changes", value="\n".join(changes), inline=False)
         await send_to_mod_log(self.bot, after.guild, embed)

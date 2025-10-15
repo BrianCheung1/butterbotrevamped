@@ -17,13 +17,21 @@ ITEMS_PER_PAGE = 5
 CACHE_DURATION = 60
 CHECK_INTERVAL = 60
 TOP_ITEMS_COUNT = 15
-
 # Margin tiers for ALERTS (stricter)
 ALERT_MARGIN_TIERS = [
     {"price_min": 1_000_000, "price_max": 5_000_000, "min_margin": 200_000},
     {"price_min": 5_000_000, "price_max": 10_000_000, "min_margin": 500_000},
     {"price_min": 10_000_000, "price_max": 15_000_000, "min_margin": 750_000},
     {"price_min": 15_000_000, "price_max": float("inf"), "min_margin": 1_000_000},
+]
+
+# Below average tiers for ALERTS (margin from current buy to avg sell must meet these thresholds)
+BELOW_AVG_TIERS = [
+    {"price_min": 0, "price_max": 1_000_000, "min_margin": 150_000},
+    {"price_min": 1_000_000, "price_max": 5_000_000, "min_margin": 250_000},
+    {"price_min": 5_000_000, "price_max": 10_000_000, "min_margin": 1_000_000},
+    {"price_min": 10_000_000, "price_max": 15_000_000, "min_margin": 2_000_000},
+    {"price_min": 15_000_000, "price_max": float("inf"), "min_margin": 5_000_000},
 ]
 
 # Margin threshold for COMMAND (more lenient)
@@ -42,6 +50,19 @@ def get_min_margin_for_price(price: int) -> int:
         if tier["price_min"] <= price < tier["price_max"]:
             return tier["min_margin"]
     return ALERT_MARGIN_TIERS[-1]["min_margin"]
+
+
+def get_min_below_avg_for_price(price: int) -> int:
+    """
+    Get the minimum margin (current buy to avg sell) required for below-avg alerts based on item price.
+
+    :param price: The current buy price of the item
+    :return: Minimum margin required in gp
+    """
+    for tier in BELOW_AVG_TIERS:
+        if tier["price_min"] <= price < tier["price_max"]:
+            return tier["min_margin"]
+    return BELOW_AVG_TIERS[-1]["min_margin"]
 
 
 class PaginationView(discord.ui.View):
@@ -149,7 +170,11 @@ class OSRSMargin(commands.Cog):
         self.bot = bot
         self.cached_embeds = None
         self.last_fetch_time = 0
-        self.top_item_ids = set()
+
+        # Separate tracking for each alert type
+        self.top_margin_item_ids = set()  # Original high margin alerts
+        self.below_avg_item_ids = set()  # New below average alerts
+
         self._first_run = True
         self._first_fetch = True
 
@@ -282,15 +307,32 @@ class OSRSMargin(commands.Cog):
 
     @tasks.loop(seconds=CHECK_INTERVAL)
     async def check_new_items(self):
-        """Background task to check for new top margin items and send alerts."""
+        """Background task to check for both high margin and below-average items."""
         try:
             if self._first_run:
                 logger.info("First run — populating baseline items only")
                 self._first_run = False
-                result = await self._get_profitable_items()
+                result = await self._get_profitable_items(use_alert_filters=True)
                 if isinstance(result, str) or not result:
                     return
-                self.top_item_ids = {item["id"] for item in result[:TOP_ITEMS_COUNT]}
+
+                # Initialize both tracking sets
+                margin_result = await self._get_profitable_items(use_alert_filters=True)
+                if not isinstance(margin_result, str) and margin_result:
+                    self.top_margin_item_ids = {
+                        item["id"] for item in margin_result[:TOP_ITEMS_COUNT]
+                    }
+
+                # Initialize below-average tracking
+                below_avg_result = await self._get_below_average_items()
+                if not isinstance(below_avg_result, str) and below_avg_result:
+                    self.below_avg_item_ids = {
+                        item["id"] for item in below_avg_result[:TOP_ITEMS_COUNT]
+                    }
+
+                logger.info(
+                    f"Initialized with {len(self.top_margin_item_ids)} margin items and {len(self.below_avg_item_ids)} below-avg items"
+                )
                 return
 
             # Fetch shared API data ONCE
@@ -307,21 +349,27 @@ class OSRSMargin(commands.Cog):
                 "volume_data": volume_data,
             }
 
-            # Get top profitable items for alerts
+            # ========== ALERT TYPE 1: High Margin Items (Original) ==========
+            # Get profitable items with strict margin filters
             profitable_items = await self._get_profitable_items(
                 use_alert_filters=True, shared_data=shared_data
             )
             if isinstance(profitable_items, str) or not profitable_items:
-                return
+                logger.warning("No profitable items found for margin alerts")
+                profitable_items = []
 
-            top_items = profitable_items[:TOP_ITEMS_COUNT]
-            current_top_ids = {item["id"] for item in top_items}
+            top_margin_items = (
+                profitable_items[:TOP_ITEMS_COUNT] if profitable_items else []
+            )
+            current_margin_ids = {item["id"] for item in top_margin_items}
 
-            new_items = [
-                item for item in top_items if item["id"] not in self.top_item_ids
+            new_margin_items = [
+                item
+                for item in top_margin_items
+                if item["id"] not in self.top_margin_item_ids
             ]
 
-            for item in new_items:
+            for item in new_margin_items:
                 embed = discord.Embed(
                     title="🚨 New High Margin Item Alert!",
                     description=f"**{item['name']}** entered the top {TOP_ITEMS_COUNT} margins!",
@@ -359,16 +407,94 @@ class OSRSMargin(commands.Cog):
 
                 await broadcast_embed_to_guilds(self.bot, "osrs_channel_id", embed)
                 logger.info(
-                    f"🚨 Alert sent: {item['name']} entered top {TOP_ITEMS_COUNT}"
+                    f"🚨 High Margin Alert: {item['name']} entered top {TOP_ITEMS_COUNT}"
                 )
 
-            # Also refresh the cached embeds using the same shared data
+            # ========== ALERT TYPE 2: Below Average Items (New) ==========
+            # Get items below average - uses different filtering (no strict margins required)
+            below_avg_items = await self._get_below_average_items(
+                shared_data=shared_data
+            )
+            if isinstance(below_avg_items, str) or not below_avg_items:
+                logger.warning("No below-average items found")
+                below_avg_items = []
+
+            top_below_avg_items = (
+                below_avg_items[:TOP_ITEMS_COUNT] if below_avg_items else []
+            )
+            current_below_avg_ids = {item["id"] for item in top_below_avg_items}
+
+            new_below_avg_items = [
+                item
+                for item in top_below_avg_items
+                if item["id"] not in self.below_avg_item_ids
+            ]
+
+            for item in new_below_avg_items:
+                embed = discord.Embed(
+                    title="💰 Below Average Item Alert!",
+                    description=f"**{item['name']}** is **{item['below_avg']:,} gp** below average!",
+                    color=discord.Color.green(),
+                    timestamp=datetime.now(timezone.utc),
+                )
+
+                buy_time = f"<t:{item['low_time']}:R>" if item["low_time"] else "N/A"
+                sell_time = f"<t:{item['high_time']}:R>" if item["high_time"] else "N/A"
+
+                # Determine which average was used
+                avg_source = "24H" if item.get("avg_buy_24h") else "7D"
+                avg_buy_used = item.get("avg_buy_24h") or item.get("avg_buy_7d")
+
+                embed.add_field(
+                    name="💸 Price Comparison",
+                    value=(
+                        f"**Current Buy:** {item['low']:,} gp ({buy_time})\n"
+                        f"**{avg_source} Avg Buy:** {avg_buy_used:,} gp\n"
+                        f"**Discount:** {item['below_avg']:,} gp ({item['discount_pct']:.1f}%) ✅"
+                    ),
+                    inline=False,
+                )
+
+                embed.add_field(
+                    name="📊 Profit Potential",
+                    value=(
+                        f"**Sell:** {item['high']:,} gp ({sell_time})\n"
+                        f"**Margin:** {item['margin']:,} gp | ROI: {item['roi']}%\n"
+                        f"**Avg Sell**: {avg_buy_used:,} gp\n"
+                        f"**Sell to Avg Sell Margin:** {item['margin_to_avg_sell']:,} gp | ROI: {item['roi_to_avg_sell']}%\n"
+                        f"**Volume:** {item['volume']:,}"
+                    ),
+                    inline=False,
+                )
+
+                if item.get("avg_buy_24h") or item.get("avg_buy_7d"):
+                    avg_text = ""
+                    if item.get("avg_buy_24h"):
+                        avg_text += f"**24H Avg Buy:** {item['avg_buy_24h']:,} gp\n"
+                        avg_text += f"**24H Avg Sell:** {item['avg_sell_24h']:,} gp\n"
+                    if item.get("avg_buy_7d"):
+                        avg_text += f"**7D Avg Buy:** {item['avg_buy_7d']:,} gp\n"
+                        avg_text += f"**7D Avg Sell:** {item['avg_sell_7d']:,} gp"
+                    embed.add_field(
+                        name="📈 Historical Averages", value=avg_text, inline=False
+                    )
+
+                embed.set_footer(text="OSRS Wiki API • Weirdgloop API")
+
+                await broadcast_embed_to_guilds(self.bot, "osrs_channel_id", embed)
+                logger.info(
+                    f"💰 Below Avg Alert: {item['name']} is {item['below_avg']:,} gp below avg ({item['discount_pct']:.1f}%)"
+                )
+
+            # Update cached embeds
             embeds = await self.fetch_margin_data(shared_data=shared_data)
             if not isinstance(embeds, str):
                 self.cached_embeds = embeds
                 self.last_fetch_time = time.time()
 
-            self.top_item_ids = current_top_ids
+            # Update tracking sets
+            self.top_margin_item_ids = current_margin_ids
+            self.below_avg_item_ids = current_below_avg_ids
 
         except Exception as e:
             logger.error(f"Error in monitoring task: {e}", exc_info=True)
@@ -377,6 +503,158 @@ class OSRSMargin(commands.Cog):
     async def before_check_new_items(self):
         """Wait until the bot is ready before starting the loop."""
         await self.bot.wait_until_ready()
+
+    async def _get_below_average_items(self, shared_data=None, force_refresh=False):
+        """
+        Get items that are significantly below their average buy price AND have good margin to avg sell.
+        Uses tiered margin requirements based on item price.
+
+        :param shared_data: Optional dict with pre-fetched data
+        :param force_refresh: Force refresh from API
+        :return: List of items below average, sorted by margin to avg sell
+        """
+        try:
+            if shared_data:
+                price_data = shared_data["price_data"]
+                mapping = shared_data["mapping"]
+                volume_data = shared_data["volume_data"]
+            else:
+                logger.info("Fetching OSRS data for below-average check...")
+                latest_data = await self.data_manager.get_latest_prices(
+                    force_refresh=force_refresh
+                )
+                price_data = latest_data.get("data", {})
+                mapping = await self.data_manager.get_mapping(
+                    force_refresh=force_refresh
+                )
+                item_names = [item["name"] for item in mapping]
+                volume_data = await self.data_manager.get_weirdgloop_volumes(
+                    item_names, force_refresh=force_refresh
+                )
+
+            if not price_data or not mapping or not volume_data:
+                return "❌ Missing OSRS API data"
+
+        except Exception as e:
+            logger.error(f"Error fetching OSRS data for below-avg: {e}", exc_info=True)
+            return f"❌ Error fetching data from OSRS APIs: {str(e)}"
+
+        below_avg_items = []
+
+        for item_id_str, price_info in price_data.items():
+            try:
+                item_id = int(item_id_str)
+            except ValueError:
+                continue
+
+            low_price = price_info.get("low")
+            high_price = price_info.get("high")
+            high_time = price_info.get("highTime")
+            low_time = price_info.get("lowTime")
+
+            if not low_price:
+                continue
+
+            item_info = self.data_manager.get_item_info(item_id)
+            if not item_info:
+                continue
+
+            item_name = item_info["name"]
+            if item_name not in volume_data:
+                continue
+
+            daily_volume = volume_data[item_name].get("volume")
+            if not daily_volume or daily_volume < MIN_VOLUME:
+                continue
+
+            # Optional: filter by max price
+            if MAX_PRICE is not None and low_price > MAX_PRICE:
+                continue
+
+            # Get historical data to compare with current price
+            try:
+                item_data = await self.data_manager.get_comprehensive_item_data(item_id)
+                historical_stats = self._calculate_stats(item_data["history"])
+            except Exception as e:
+                logger.debug(f"No history for {item_name}: {e}")
+                continue
+
+            # Check 24h average first, fallback to 7d
+            avg_buy_24h = int(historical_stats.get("24h", {}).get("avg_low", 0))
+            avg_buy_7d = int(historical_stats.get("7d", {}).get("avg_low", 0))
+            avg_sell_24h = int(historical_stats.get("24h", {}).get("avg_high", 0))
+            avg_sell_7d = int(historical_stats.get("7d", {}).get("avg_high", 0))
+
+            avg_buy = avg_buy_24h or avg_buy_7d
+            avg_sell = avg_sell_24h or avg_sell_7d
+
+            if not avg_buy or avg_buy <= 0:
+                continue
+
+            # Calculate how much below average buy price
+            below_avg = avg_buy - low_price
+
+            # Must be below average to qualify
+            if below_avg <= 0:
+                continue
+
+            # Calculate margin from current buy to average sell (this is what gets tiered)
+            if not avg_sell or avg_sell <= low_price:
+                continue
+
+            ge_tax_avg = avg_sell * 0.02
+            margin_to_avg_sell = round((avg_sell - ge_tax_avg) - low_price)
+
+            roi_to_avg_sell = (
+                round((margin_to_avg_sell / low_price) * 100, 2) if low_price > 0 else 0
+            )
+
+            # Use tiered threshold based on current buy price
+            min_required_margin = get_min_below_avg_for_price(low_price)
+
+            if margin_to_avg_sell < min_required_margin:
+                continue
+
+            # Calculate discount percentage
+            discount_pct = (below_avg / avg_buy) * 100
+
+            # Calculate margin if high price exists
+            margin = 0
+            roi = 0
+            if high_price and high_price > low_price:
+                ge_tax = high_price * 0.02
+                margin = round((high_price - ge_tax) - low_price)
+                roi = round((margin / low_price) * 100, 2) if low_price > 0 else 0
+
+            below_avg_items.append(
+                {
+                    "id": item_id,
+                    "name": item_name,
+                    "low": low_price,
+                    "high": high_price or 0,
+                    "high_time": high_time,
+                    "low_time": low_time,
+                    "volume": daily_volume,
+                    "below_avg": below_avg,
+                    "discount_pct": discount_pct,
+                    "margin_to_avg_sell": margin_to_avg_sell,
+                    "roi_to_avg_sell": roi_to_avg_sell,
+                    "avg_buy_24h": avg_buy_24h,
+                    "avg_sell_24h": avg_sell_24h,
+                    "avg_buy_7d": avg_buy_7d,
+                    "avg_sell_7d": avg_sell_7d,
+                    "margin": margin,
+                    "roi": roi,
+                }
+            )
+
+        # Sort by margin to average sell (biggest profit potential first)
+        below_avg_items.sort(key=lambda x: x["margin_to_avg_sell"], reverse=True)
+        logger.info(
+            f"Found {len(below_avg_items)} items below average (tiered margin requirements)"
+        )
+
+        return below_avg_items
 
     def _calculate_stats(self, history: Dict) -> Dict:
         """Calculate 24h and 7d statistics from timeseries data."""

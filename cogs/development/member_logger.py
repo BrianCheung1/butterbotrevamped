@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands
@@ -15,7 +15,7 @@ class MemberLogger(commands.Cog):
             title="📥 Member Joined",
             description=f"{member.mention} (`{member.id}`) joined the server.",
             color=discord.Color.green(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.set_author(name=str(member), icon_url=member.display_avatar.url)
         await send_to_mod_log(self.bot, member.guild, embed)
@@ -26,7 +26,7 @@ class MemberLogger(commands.Cog):
             title="📤 Member Left",
             description=f"{member.mention} (`{member.id}`) left or was removed from the server.",
             color=discord.Color.red(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.set_author(name=str(member), icon_url=member.display_avatar.url)
         await send_to_mod_log(self.bot, member.guild, embed)
@@ -37,7 +37,7 @@ class MemberLogger(commands.Cog):
             title="🔨 Member Banned",
             description=f"{user.mention} (`{user.id}`) was banned from the server.",
             color=discord.Color.dark_red(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.set_author(name=str(user), icon_url=user.display_avatar.url)
         await send_to_mod_log(self.bot, guild, embed)
@@ -48,7 +48,7 @@ class MemberLogger(commands.Cog):
             title="🛡️ Member Unbanned",
             description=f"{user.mention} (`{user.id}`) was unbanned from the server.",
             color=discord.Color.blue(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.set_author(name=str(user), icon_url=user.display_avatar.url)
         await send_to_mod_log(self.bot, guild, embed)

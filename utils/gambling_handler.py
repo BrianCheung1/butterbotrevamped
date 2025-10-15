@@ -240,9 +240,15 @@ class GameAgainView(discord.ui.View):
         # Calculate bet amount
         from utils.balance_helper import calculate_percentage_amount
 
-        if self.action and not self.amount:
+        logger.info(
+            f"Action: {self.action}, Amount: {self.amount}, Current Balance: {current_balance}"
+        )
+
+        if self.action:
+            # Always recalculate percentage based on current balance
             bet_amount = calculate_percentage_amount(current_balance, self.action)
-        else:
+        elif self.amount:
+            # Use the fixed amount
             bet_amount = self.amount
 
         # Validate balance
@@ -253,7 +259,7 @@ class GameAgainView(discord.ui.View):
             await interaction.edit_original_response(content=error, view=None)
             return
 
-        # Execute game using generic handler
+        # Execute game using generic handler, passing action to preserve percentage behavior
         await execute_gambling_game(
             self.bot,
             interaction,
@@ -262,6 +268,7 @@ class GameAgainView(discord.ui.View):
             game_func=self.game_func,
             game_type=self.game_type,
             prev_balance=current_balance,
+            action=self.action,  # CRITICAL FIX: Pass action to preserve percentage behavior
         )
 
         # Get updated message and attach this view to it for next play
