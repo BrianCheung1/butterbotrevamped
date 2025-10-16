@@ -85,22 +85,35 @@ async def execute_gambling_game(
     if prev_balance is None:
         prev_balance = await bot.database.user_db.get_balance(user_id)
 
-    # Execute game logic
-    result = await game_func(bot, user_id, amount, prev_balance)
-    result.prev_balance = prev_balance
-    result.bet_amount = amount
-    result.final_balance = prev_balance + result.outcome_amount
+    try:
+        # Execute game logic
+        result = await game_func(bot, user_id, amount, prev_balance)
+        result.prev_balance = prev_balance
+        result.bet_amount = amount
+        result.final_balance = prev_balance + result.outcome_amount
 
-    # Update balance
-    await bot.database.user_db.increment_balance(user_id, result.outcome_amount)
+        # Update balance
+        await bot.database.user_db.increment_balance(user_id, result.outcome_amount)
 
-    # Log game stats
-    await bot.database.game_db.set_user_game_stats(
-        user_id,
-        GameEventType[game_type.value.upper()],
-        result.win_status,
-        amount * result.multiplier if result.win_status else amount,
-    )
+        # Log game stats
+        await bot.database.game_db.set_user_game_stats(
+            user_id,
+            GameEventType[game_type.value.upper()],
+            result.win_status,
+            amount * result.multiplier if result.win_status else amount,
+        )
+
+    except Exception as e:
+        logger.error(f"Game execution failed for {game_type.value}: {e}", exc_info=True)
+
+        # Send error message to user
+        error_embed = discord.Embed(
+            title="❌ Game Error",
+            description="An error occurred while processing your game. Please try again.",
+            color=discord.Color.red(),
+        )
+        await interaction.edit_original_response(embed=error_embed, view=None)
+        return
 
     # Build embed
     embed = _create_game_embed(result)

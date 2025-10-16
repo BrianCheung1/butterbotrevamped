@@ -1,8 +1,8 @@
 import asyncio
 import os
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
 import aiohttp
 from logger import setup_logger

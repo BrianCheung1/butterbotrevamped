@@ -97,14 +97,10 @@ class OSRSDataManager:
                 return data
 
             except Exception as e:
-                logger.error(
-                    f"Error fetching {cache_key}: {e}"
-                )
+                logger.error(f"Error fetching {cache_key}: {e}")
                 # Return stale cache if available, otherwise raise
                 if cache_key in self._cache:
-                    logger.warning(
-                        f"Using stale cache for {cache_key}"
-                    )
+                    logger.warning(f"Using stale cache for {cache_key}")
                     return self._cache[cache_key]
                 raise
 
@@ -146,28 +142,29 @@ class OSRSDataManager:
         # Build autocomplete indices
         for item in items:
             name_lower = item["name"].lower()
+            item_id = item["id"]
 
-            # Exact match
-            self.indices["exact"][name_lower] = item
+            # Exact match - store ID for consistency ✅
+            self.indices["exact"][name_lower] = item_id
 
-            # Prefix indices (all lengths)
+            # Prefix indices (store IDs only)
             for length in range(1, len(name_lower) + 1):
                 prefix = name_lower[:length]
                 if len(self.indices["prefix"][prefix]) < 200:
-                    self.indices["prefix"][prefix].append(item)
+                    self.indices["prefix"][prefix].append(item_id)
 
-            # Word indices
+            # Word indices (store IDs only)
             for word in name_lower.split():
                 if len(word) >= 2:
                     if len(self.indices["word"][word]) < 100:
-                        self.indices["word"][word].append(item)
+                        self.indices["word"][word].append(item_id)
 
-            # Substring indices for abbreviations
+            # Substring indices (store IDs only)
             for i in range(len(name_lower)):
                 for j in range(i + 3, min(i + 8, len(name_lower) + 1)):
                     substring = name_lower[i:j]
                     if len(self.indices["substring"][substring]) < 50:
-                        self.indices["substring"][substring].append(item)
+                        self.indices["substring"][substring].append(item_id)
 
     async def get_timeseries(
         self, item_id: int, timestep: str = "5m", force_refresh: bool = False
@@ -259,9 +256,7 @@ class OSRSDataManager:
 
                 for result in results:
                     if isinstance(result, Exception):
-                        logger.error(
-                            f"Error fetching Weirdgloop chunk: {result}"
-                        )
+                        logger.error(f"Error fetching Weirdgloop chunk: {result}")
                         continue
                     volume_data.update(result)
 
@@ -296,9 +291,7 @@ class OSRSDataManager:
         data = {}
         for key, result in zip(tasks.keys(), results):
             if isinstance(result, Exception):
-                logger.error(
-                    f"Error fetching {key} for item {item_id}: {result}"
-                )
+                logger.error(f"Error fetching {key} for item {item_id}: {result}")
                 data[key] = {} if key == "latest" else []
             else:
                 data[key] = result
@@ -345,49 +338,54 @@ class OSRSDataManager:
 
         # Strategy 1: Exact match
         if query_lower in self.indices["exact"]:
-            item = self.indices["exact"][query_lower]
+            item_id = self.indices["exact"][query_lower]  # ✅ Now it's an ID
+            item = self.id_to_item[item_id]  # ✅ Look up full item
             matches.append(item)
-            seen.add(item["name"].lower())
+            seen.add(item_id)
 
         # Strategy 2: Prefix match
         prefix_key = query_lower[: min(3, len(query_lower))]
-        for item in self.indices["prefix"].get(prefix_key, []):
-            if len(matches) >= limit * 2:  # Gather more for sorting
+        for item_id in self.indices["prefix"].get(prefix_key, []):
+            if len(matches) >= limit * 2:
                 break
-            name_lower = item["name"].lower()
-            if query_lower in name_lower and name_lower not in seen:
-                matches.append(item)
-                seen.add(name_lower)
+            if item_id not in seen:
+                item = self.id_to_item[item_id]
+                name_lower = item["name"].lower()
+                if query_lower in name_lower:
+                    matches.append(item)
+                    seen.add(item_id)
 
         # Strategy 3: Word match
         if len(matches) < limit:
             for word in query_lower.split():
                 if len(word) >= 2:
-                    for item in self.indices["word"].get(word, []):
+                    for item_id in self.indices["word"].get(word, []):
                         if len(matches) >= limit * 2:
                             break
-                        name_lower = item["name"].lower()
-                        if query_lower in name_lower and name_lower not in seen:
-                            matches.append(item)
-                            seen.add(name_lower)
+                        if item_id not in seen:
+                            item = self.id_to_item[item_id]
+                            name_lower = item["name"].lower()
+                            if query_lower in name_lower:
+                                matches.append(item)
+                                seen.add(item_id)
 
         # Strategy 4: Substring match
         if len(matches) < limit and len(query_lower) >= 3:
-            for item in self.indices["substring"].get(query_lower, []):
+            for item_id in self.indices["substring"].get(query_lower, []):
                 if len(matches) >= limit * 2:
                     break
-                name_lower = item["name"].lower()
-                if name_lower not in seen:
+                if item_id not in seen:
+                    item = self.id_to_item[item_id]
                     matches.append(item)
-                    seen.add(name_lower)
+                    seen.add(item_id)
 
         # Sort by relevance
         def sort_key(item):
             name = item["name"].lower()
             return (
-                name != query_lower,  # Exact match first
-                not name.startswith(query_lower),  # Starts with second
-                name,  # Alphabetical
+                name != query_lower,
+                not name.startswith(query_lower),
+                name,
             )
 
         matches.sort(key=sort_key)

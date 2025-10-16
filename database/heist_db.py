@@ -40,7 +40,7 @@ class HeistDatabaseManager:
         await self.db_manager._create_user_if_not_exists(user_id)
 
         async with self.db_manager.transaction():
-            if win:
+            if win is True:  # ✅ Explicit True check
                 await self.connection.execute(
                     """
                     UPDATE user_heist_stats
@@ -52,7 +52,7 @@ class HeistDatabaseManager:
                     """,
                     (amount, user_id),
                 )
-            else:
+            elif win is False:  # ✅ Explicit False check
                 await self.connection.execute(
                     """
                     UPDATE user_heist_stats
@@ -64,3 +64,9 @@ class HeistDatabaseManager:
                     """,
                     (amount, user_id),
                 )
+            else:  # ✅ Handle unexpected values
+                logger.warning(
+                    f"Unexpected win value: {win} (type: {type(win)}) for user {user_id}. "
+                    f"Expected True or False. Skipping heist stats update."
+                )
+                return  # Exit without updating anything
