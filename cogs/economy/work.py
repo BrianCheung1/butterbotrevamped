@@ -1,6 +1,7 @@
 import asyncio
 import random
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from time import time
 from typing import Optional
@@ -10,10 +11,10 @@ from constants.fishing_config import FISHING_RARITY_TIERS
 from constants.mining_config import MINING_RARITY_TIERS
 from discord import app_commands
 from utils.base_cog import BaseGameCog
-from utils.bonus_calculator import calculate_value_bonuses, calculate_xp_bonuses
+from utils.bonus_calculator import (calculate_value_bonuses,
+                                    calculate_xp_bonuses)
 from utils.equips import format_tool_display_name, get_tool_bonus
 from utils.formatting import format_number
-from datetime import datetime, timezone
 
 
 class WorkType(Enum):
@@ -321,8 +322,7 @@ class WorkAgainView(discord.ui.View):
 
     async def on_timeout(self):
         """Handle timeout."""
-        session_key = f"{self.user_id}_{self.work_type.value}"
-        self.active_sessions.pop(session_key, None)
+        self.active_sessions[self.work_type].pop(self.user_id, None)
         try:
             message = await self.channel.fetch_message(self.message_id)
             work_name = self.work_type.value.capitalize()
@@ -336,7 +336,7 @@ class Work(BaseGameCog):
 
     def __init__(self, bot):
         super().__init__(bot)
-        self.active_sessions = {}
+        self.active_sessions = {"Mining": {}, "Fishing": {}}
         self.cooldowns = {}
         self.failures = {}
 
@@ -355,12 +355,19 @@ class Work(BaseGameCog):
         user_id = interaction.user.id
         work_name = work_type.value.capitalize()
 
-        if user_id in self.active_sessions:
-            link = self.active_sessions[user_id].jump_url
-            await interaction.response.send_message(
-                f"You are already {work_name.lower()}. [Jump]({link})"
-            )
-            return
+        if user_id in self.active_sessions[work_name]:
+            msg = self.active_sessions[work_name][user_id]
+            try:
+                await interaction.response.send_message(
+                    f"You are already {work_name.lower()}. [Jump to session]({msg.jump_url})",
+                    ephemeral=True,
+                )
+            except Exception as e:
+                self.active_sessions.pop(user_id, None)
+                self.bot.logger.error(f"Error fetching active session message: {e}")
+                await interaction.response.defer()
+            else:
+                return
 
         now = time()
         if user_id in self.cooldowns and now < self.cooldowns[user_id]:
@@ -390,8 +397,8 @@ class Work(BaseGameCog):
         view.message = await interaction.followup.send(embed=embed, view=view)
         view.message_id = view.message.id
         view.channel = interaction.channel
-        session_key = f"{user_id}_{work_type.value}"
-        self.active_sessions[session_key] = view.message
+
+        self.active_sessions[work_name][user_id] = view.message
 
 
 async def setup(bot):

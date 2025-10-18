@@ -1,4 +1,5 @@
 import discord
+
 from utils.formatting import format_number
 
 

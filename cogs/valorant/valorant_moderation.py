@@ -3,9 +3,9 @@ import os
 import discord
 from discord import app_commands
 from discord.ext import commands
+from logger import setup_logger
 from utils.checks import is_owner_or_mod_check
 from utils.valorant_helpers import name_autocomplete, tag_autocomplete
-from logger import setup_logger
 
 logger = setup_logger("ValorantModeration")
 
@@ -57,9 +57,7 @@ class ValorantModeration(commands.Cog):
                     f"⚠️ `{name}#{tag}` was not found in the database."
                 )
         except Exception as e:
-            logger.error(
-                f"Error removing player {name}#{tag}: {e}", exc_info=True
-            )
+            logger.error(f"Error removing player {name}#{tag}: {e}", exc_info=True)
             await interaction.followup.send(
                 f"❌ An error occurred while removing `{name}#{tag}`.", ephemeral=True
             )

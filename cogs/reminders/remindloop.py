@@ -27,9 +27,7 @@ class RemindLoop(commands.Cog):
                 except discord.Forbidden:
                     logger.warning(f"Cannot send DM to user {user_id}.")
                 except Exception as e:
-                    logger.exception(
-                        f"Error sending reminder to {user_id}: {e}"
-                    )
+                    logger.exception(f"Error sending reminder to {user_id}: {e}")
                 finally:
                     await self.bot.database.reminders_db.delete_reminder(reminder_id)
         except Exception as loop_err:

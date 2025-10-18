@@ -1,9 +1,11 @@
+from typing import Tuple
+
 import discord
 from discord.ext import commands
+from logger import setup_logger
+
 from utils.balance_helper import validate_amount
 from utils.formatting import format_number
-from logger import setup_logger
-from typing import Tuple
 
 logger = setup_logger("BaseGameCog")
 
@@ -338,7 +340,7 @@ class BaseGameCog(commands.Cog):
             return
 
         # Execute game with generic handler
-        from utils.gambling_handler import execute_gambling_game, GameType
+        from utils.gambling_handler import GameType, execute_gambling_game
 
         # Determine game type from game_name
         game_type_map = {

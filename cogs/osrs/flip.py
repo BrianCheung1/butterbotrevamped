@@ -182,9 +182,7 @@ class OSRSFlips(commands.Cog):
             }
 
         except Exception as e:
-            logger.error(
-                f"Error fetching data: {e}", exc_info=True
-            )
+            logger.error(f"Error fetching data: {e}", exc_info=True)
             raise
 
         # Analyze flips with debug tracking

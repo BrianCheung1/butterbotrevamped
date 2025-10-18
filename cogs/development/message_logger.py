@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands
-from utils.channels import send_to_mod_log
 from logger import setup_logger
+from utils.channels import send_to_mod_log
 
 logger = setup_logger("MessageLogger")
 
@@ -96,7 +96,7 @@ class MessageLogger(commands.Cog):
                 f"**After:**\n{after.content or '*No content*'}"
             ),
             color=discord.Color.orange(),
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(timezone.utc),
         )
         embed.set_author(
             name=str(before.author), icon_url=before.author.display_avatar.url

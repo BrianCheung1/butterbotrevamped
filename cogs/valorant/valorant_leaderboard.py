@@ -5,15 +5,12 @@ from typing import List, Optional
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from logger import setup_logger
 from utils.channels import broadcast_embed_to_guilds
 from utils.valorant_data_manager import RateLimitError
-from utils.valorant_helpers import (
-    build_leaderboard_from_cache,
-    should_update_player,
-    name_autocomplete,
-    tag_autocomplete,
-)
-from logger import setup_logger
+from utils.valorant_helpers import (build_leaderboard_from_cache,
+                                    name_autocomplete, should_update_player,
+                                    tag_autocomplete)
 
 logger = setup_logger("ValorantLeaderboard")
 

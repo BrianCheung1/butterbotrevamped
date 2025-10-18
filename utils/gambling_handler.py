@@ -1,11 +1,12 @@
-from typing import Callable, Optional, Dict
 from dataclasses import dataclass
 from enum import Enum
+from typing import Callable, Dict, Optional
 
 import discord
 from constants.game_config import GameEventType
-from utils.formatting import format_number
 from logger import setup_logger
+
+from utils.formatting import format_number
 
 logger = setup_logger("GamblingHandler")
 

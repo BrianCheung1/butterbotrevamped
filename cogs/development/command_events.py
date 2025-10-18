@@ -2,13 +2,9 @@ from datetime import datetime
 
 import discord
 from discord import app_commands
-from discord.app_commands import (
-    AppCommandError,
-    BotMissingPermissions,
-    CheckFailure,
-    CommandOnCooldown,
-    MissingPermissions,
-)
+from discord.app_commands import (AppCommandError, BotMissingPermissions,
+                                  CheckFailure, CommandOnCooldown,
+                                  MissingPermissions)
 from discord.ext import commands
 from logger import setup_logger
 

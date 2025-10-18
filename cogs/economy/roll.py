@@ -1,14 +1,13 @@
-
 import random
 from datetime import datetime, timezone
 from typing import Optional
 
 import discord
 from discord import app_commands
+from logger import setup_logger
 from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
 from utils.gambling_handler import GameResult
-from logger import setup_logger
 
 logger = setup_logger("Roll")
 

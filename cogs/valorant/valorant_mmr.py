@@ -5,20 +5,12 @@ from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.valorant_data_manager import (
-    APIUnavailableError,
-    PlayerNotFoundError,
-    RateLimitError,
-)
-from utils.valorant_helpers import (
-    convert_to_datetime,
-    name_autocomplete,
-    parse_player_rank,
-    tag_autocomplete,
-)
 from logger import setup_logger
 from utils.pagination import PaginatedView
-
+from utils.valorant_data_manager import (APIUnavailableError,
+                                         PlayerNotFoundError, RateLimitError)
+from utils.valorant_helpers import (convert_to_datetime, name_autocomplete,
+                                    parse_player_rank, tag_autocomplete)
 
 logger = setup_logger("ValorantMMR")
 

@@ -5,15 +5,12 @@ from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
+from logger import setup_logger
 from utils.channels import broadcast_embed_to_guilds
 from utils.checks import is_owner_or_mod_check
-from utils.steam_helpers import (
-    clean_notes,
-    extract_app_id,
-    fetch_steam_app_details,
-    fetch_steam_review_summary,
-)
-from logger import setup_logger
+from utils.steam_helpers import (clean_notes, extract_app_id,
+                                 fetch_steam_app_details,
+                                 fetch_steam_review_summary)
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 

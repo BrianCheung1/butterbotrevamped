@@ -1,31 +1,23 @@
 import random
+
 import discord
+from constants.steal_config import (BASE_SUCCESS_RATE, EXTRA_WEALTH_CAP,
+                                    EXTRA_WEALTH_MULTIPLIER,
+                                    LARGE_BALANCE_MULTIPLIER,
+                                    LARGE_BALANCE_THRESHOLD,
+                                    MIN_BALANCE_TO_STEAL, STEAL_AMOUNT_RANGE,
+                                    STEAL_COOLDOWN, STOLEN_FROM_COOLDOWN,
+                                    THEFT_TIER_WEIGHTS, THEFT_TIERS,
+                                    WEALTH_FACTOR_CAP, WEALTH_MULTIPLIER,
+                                    StealEventType)
 from discord import app_commands
-from constants.steal_config import (
-    STEAL_COOLDOWN,
-    STOLEN_FROM_COOLDOWN,
-    MIN_BALANCE_TO_STEAL,
-    BASE_SUCCESS_RATE,
-    STEAL_AMOUNT_RANGE,
-    WEALTH_FACTOR_CAP,
-    WEALTH_MULTIPLIER,
-    EXTRA_WEALTH_CAP,
-    EXTRA_WEALTH_MULTIPLIER,
-    THEFT_TIERS,
-    THEFT_TIER_WEIGHTS,
-    LARGE_BALANCE_THRESHOLD,
-    LARGE_BALANCE_MULTIPLIER,
-    StealEventType,
-)
 from utils.base_cog import BaseGameCog
-from utils.steal_helpers import (
-    calculate_steal_success_rate,
-    calculate_stolen_amount,
-    calculate_lost_amount,
-)
 from utils.cooldown import get_cooldown_response
 from utils.formatting import format_number
 from utils.pagination import PaginatedView
+from utils.steal_helpers import (calculate_lost_amount,
+                                 calculate_steal_success_rate,
+                                 calculate_stolen_amount)
 
 
 class StealStatusView(PaginatedView):

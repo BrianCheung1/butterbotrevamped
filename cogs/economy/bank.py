@@ -4,12 +4,12 @@ from typing import Optional
 
 import discord
 from discord import app_commands
-from utils.base_cog import BaseGameCog
+from logger import setup_logger
 from utils.balance_helper import calculate_percentage_amount
+from utils.base_cog import BaseGameCog
 from utils.channels import broadcast_embed_to_guilds
 from utils.embed_builders import build_bank_embed, build_transaction_embed
 from utils.formatting import format_number
-from logger import setup_logger
 
 logger = setup_logger("Bank")
 

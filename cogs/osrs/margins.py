@@ -4,8 +4,8 @@ from typing import Dict
 
 import discord
 from discord.ext import commands, tasks
-from utils.channels import broadcast_embed_to_guilds
 from logger import setup_logger
+from utils.channels import broadcast_embed_to_guilds
 
 logger = setup_logger("OSRSMargin")
 

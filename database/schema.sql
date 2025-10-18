@@ -243,3 +243,18 @@ CREATE INDEX IF NOT EXISTS idx_interactions_user_id_timestamp ON interactions(us
 CREATE INDEX IF NOT EXISTS idx_reminders_remind_at ON reminders(remind_at);
 CREATE INDEX IF NOT EXISTS idx_message_logs_created_at ON message_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_players_name_tag ON players(name, tag);
+CREATE INDEX IF NOT EXISTS idx_bank_stats_user_id ON user_bank_stats(user_id);
+CREATE INDEX IF NOT EXISTS idx_bank_stats_balance ON user_bank_stats(bank_balance DESC);
+
+CREATE INDEX IF NOT EXISTS idx_work_stats_user_id ON user_work_stats(user_id);
+CREATE INDEX IF NOT EXISTS idx_work_mining_level ON user_work_stats(mining_level DESC);
+CREATE INDEX IF NOT EXISTS idx_work_fishing_level ON user_work_stats(fishing_level DESC);
+
+CREATE INDEX IF NOT EXISTS idx_steal_stats_user_id ON user_steal_stats(user_id);
+CREATE INDEX IF NOT EXISTS idx_steal_last_stolen ON user_steal_stats(last_stolen_from_at);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_user_id ON user_inventory(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_guild_settings_guild_id ON guild_settings(guild_id);
+
+CREATE INDEX IF NOT EXISTS idx_users_balance ON users(balance DESC);

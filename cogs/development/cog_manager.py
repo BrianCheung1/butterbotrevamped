@@ -5,8 +5,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from discord.ext.commands.errors import ExtensionNotLoaded
-from utils.checks import is_owner_or_mod_check
 from logger import setup_logger
+from utils.checks import is_owner_or_mod_check
 
 DEV_GUILD_ID = int(os.getenv("DEV_GUILD_ID"))
 

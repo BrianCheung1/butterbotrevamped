@@ -4,9 +4,9 @@ from typing import List, Optional
 
 import discord
 from discord import app_commands
+from logger import setup_logger
 from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
-from logger import setup_logger
 
 logger = setup_logger("Leaderboard")
 

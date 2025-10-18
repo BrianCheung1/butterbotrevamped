@@ -4,9 +4,9 @@ from datetime import timezone
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from logger import setup_logger
 from utils.base_cog import BaseGameCog
 from utils.formatting import format_number
-from logger import setup_logger
 
 logger = setup_logger("Daily")
 
