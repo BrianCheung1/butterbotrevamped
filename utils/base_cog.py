@@ -140,13 +140,14 @@ class BaseGameCog(commands.Cog):
         log_action: str = "TRANSFER",
     ) -> Tuple[int, int]:
         """
-        Transfer balance from one user to another.
+        Transfer balance from one user to another atomically.
 
         Returns:
             (from_user_new_balance, to_user_new_balance)
         """
-        from_balance = await self.deduct_balance(from_user_id, amount)
-        to_balance = await self.add_balance(to_user_id, amount)
+        async with self.bot.database.transaction():
+            from_balance = await self.deduct_balance(from_user_id, amount)
+            to_balance = await self.add_balance(to_user_id, amount)
 
         self.log_transaction(from_user_id, log_action, amount, f"To: {to_user_id}")
 
