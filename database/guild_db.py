@@ -17,7 +17,8 @@ class GuildSettingsDatabaseManager:
             "steam_games_channel_id": "steam_games_channel_id",
             "leaderboard_announcements_channel_id": "leaderboard_announcements_channel_id",
             "mod_log_channel_id": "mod_log_channel_id",
-            "osrs_channel_id": "osrs_channel_id",
+            "osrs_margin_channel_id": "osrs_margin_channel_id",
+            "osrs_below_avg_channel_id": "osrs_below_avg_channel_id",
         }
 
     def _validate_channel_type(self, channel_type: str) -> None:

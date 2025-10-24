@@ -172,7 +172,8 @@ class OSRSMargin(commands.Cog):
             for item in new_margin_items:
                 embed = discord.Embed(
                     title="🚨 New High Margin Item Alert!",
-                    description=f"**{item['name']}** entered the top {TOP_ITEMS_COUNT} margins!",
+                    url=f"https://prices.osrs.cloud/item/{item['id']}",
+                    description=f"**{item['name']}** entered the top{TOP_ITEMS_COUNT} margins!",
                     color=discord.Color.gold(),
                     timestamp=datetime.now(timezone.utc),
                 )
@@ -205,7 +206,9 @@ class OSRSMargin(commands.Cog):
 
                 embed.set_footer(text="OSRS Wiki API • Weirdgloop API")
 
-                await broadcast_embed_to_guilds(self.bot, "osrs_channel_id", embed)
+                await broadcast_embed_to_guilds(
+                    self.bot, "osrs_margin_channel_id", embed
+                )
                 logger.info(
                     f"🚨 High Margin Alert: {item['name']} entered top {TOP_ITEMS_COUNT}"
                 )
@@ -232,6 +235,7 @@ class OSRSMargin(commands.Cog):
             for item in new_below_avg_items:
                 embed = discord.Embed(
                     title="💰 Below Average Item Alert!",
+                    url=f"https://prices.osrs.cloud/item/{item['id']}",
                     description=f"**{item['name']}** is **{item['below_avg']:,} gp** below average!",
                     color=discord.Color.green(),
                     timestamp=datetime.now(timezone.utc),
@@ -279,7 +283,9 @@ class OSRSMargin(commands.Cog):
 
                 embed.set_footer(text="OSRS Wiki API • Weirdgloop API")
 
-                await broadcast_embed_to_guilds(self.bot, "osrs_channel_id", embed)
+                await broadcast_embed_to_guilds(
+                    self.bot, "osrs_below_avg_channel_id", embed
+                )
                 logger.info(
                     f"💰 Below Avg Alert: {item['name']} is {item['below_avg']:,} gp below avg ({item['discount_pct']:.1f}%)"
                 )

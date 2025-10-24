@@ -10,7 +10,8 @@ CHANNEL_TYPES = {
     "Steam Games": "steam_games_channel_id",
     "Leaderboard Announcements": "leaderboard_announcements_channel_id",
     "Mod Logs": "mod_log_channel_id",
-    "OSRS Dumps": "osrs_channel_id",
+    "OSRS Margin Alerts": "osrs_margin_channel_id",
+    "OSRS Below Average Alerts": "osrs_below_avg_channel_id",
 }
 
 # Extract valid DB keys for validation
@@ -53,10 +54,15 @@ def get_channel_display_info(channel_type: str) -> dict:
             "description": "For moderation actions and logs",
             "emoji": "🔨",
         },
-        "osrs_channel_id": {
-            "name": "OSRS Dumps",
-            "description": "For Old School RuneScape related notifications",
-            "emoji": "⚔️",
+        "osrs_margin_channel_id": {
+            "name": "OSRS Margin Alerts",
+            "description": "For high margin OSRS item alerts",
+            "emoji": "💰",
+        },
+        "osrs_below_avg_channel_id": {
+            "name": "OSRS Below Average Alerts",
+            "description": "For OSRS items below average price",
+            "emoji": "📉",
         },
     }
     return channel_info.get(

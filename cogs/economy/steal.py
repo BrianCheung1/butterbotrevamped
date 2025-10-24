@@ -165,7 +165,7 @@ class Steal(BaseGameCog):
 
             # Use new BaseGameCog method
             await self.transfer_balance(
-                thief_id, target_id, stolen_amount, "STEAL_SUCCESS"
+                target_id, thief_id, stolen_amount, "STEAL_SUCCESS"
             )
 
             await self.bot.database.steal_db.set_user_steal_stats(

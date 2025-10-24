@@ -145,9 +145,37 @@ class BaseGameCog(commands.Cog):
         Returns:
             (from_user_new_balance, to_user_new_balance)
         """
+        # Use a single transaction for both operations
         async with self.bot.database.transaction():
-            from_balance = await self.deduct_balance(from_user_id, amount)
-            to_balance = await self.add_balance(to_user_id, amount)
+            # Deduct from sender
+            async with self.bot.database.connection.execute(
+                """
+                UPDATE users
+                SET balance = balance + ?
+                WHERE user_id = ? AND balance + ? >= 0
+                RETURNING balance
+                """,
+                (-amount, from_user_id, -amount),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row is None:
+                    raise ValueError("Insufficient balance for transfer.")
+                from_balance = row[0]
+
+            # Add to recipient
+            async with self.bot.database.connection.execute(
+                """
+                UPDATE users
+                SET balance = balance + ?
+                WHERE user_id = ?
+                RETURNING balance
+                """,
+                (amount, to_user_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row is None:
+                    raise ValueError("Failed to add balance to recipient.")
+                to_balance = row[0]
 
         self.log_transaction(from_user_id, log_action, amount, f"To: {to_user_id}")
 
