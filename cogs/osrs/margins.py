@@ -11,7 +11,7 @@ logger = setup_logger("OSRSMargin")
 
 # === FILTERS ===
 MIN_VOLUME = 400
-MAX_PRICE = 20_000_000
+MAX_PRICE = 100_000_000
 CHECK_INTERVAL = 60
 TOP_ITEMS_COUNT = 15
 
@@ -20,7 +20,8 @@ ALERT_MARGIN_TIERS = [
     {"price_min": 1_000_000, "price_max": 5_000_000, "min_margin": 200_000},
     {"price_min": 5_000_000, "price_max": 10_000_000, "min_margin": 500_000},
     {"price_min": 10_000_000, "price_max": 15_000_000, "min_margin": 750_000},
-    {"price_min": 15_000_000, "price_max": float("inf"), "min_margin": 1_000_000},
+    {"price_min": 15_000_000, "price_max": 50_000_000, "min_margin": 1_000_000},
+    {"price_min": 50_000_000, "price_max": float("inf"), "min_margin": 2_500_000},
 ]
 
 # Below average tiers for ALERTS
@@ -28,8 +29,9 @@ BELOW_AVG_TIERS = [
     {"price_min": 0, "price_max": 1_000_000, "min_margin": 150_000},
     {"price_min": 1_000_000, "price_max": 5_000_000, "min_margin": 250_000},
     {"price_min": 5_000_000, "price_max": 10_000_000, "min_margin": 1_000_000},
-    {"price_min": 10_000_000, "price_max": 15_000_000, "min_margin": 2_000_000},
-    {"price_min": 15_000_000, "price_max": float("inf"), "min_margin": 5_000_000},
+    {"price_min": 10_000_000, "price_max": 15_000_000, "min_margin": 750_000},
+    {"price_min": 15_000_000, "price_max": 50_000_000, "min_margin": 1_000_000},
+    {"price_min": 50_000_000, "price_max": float("inf"), "min_margin": 2_500_000},
 ]
 
 # Below average tiers for ALERTS
@@ -38,7 +40,8 @@ BELOW_AVG_TIERS_MARGINS = [
     {"price_min": 1_000_000, "price_max": 5_000_000, "min_margin": 10_000},
     {"price_min": 5_000_000, "price_max": 10_000_000, "min_margin": 50_000},
     {"price_min": 10_000_000, "price_max": 15_000_000, "min_margin": 100_000},
-    {"price_min": 15_000_000, "price_max": float("inf"), "min_margin": 150_000},
+    {"price_min": 15_000_000, "price_max": 50_000_000, "min_margin": 250_000},
+    {"price_min": 50_000_000, "price_max": float("inf"), "min_margin": 500_000},
 ]
 
 
@@ -173,7 +176,7 @@ class OSRSMargin(commands.Cog):
                 embed = discord.Embed(
                     title="🚨 New High Margin Item Alert!",
                     url=f"https://prices.osrs.cloud/item/{item['id']}",
-                    description=f"**{item['name']}** entered the top{TOP_ITEMS_COUNT} margins!",
+                    description=f"**{item['name']}** entered the top {TOP_ITEMS_COUNT} margins!",
                     color=discord.Color.gold(),
                     timestamp=datetime.now(timezone.utc),
                 )

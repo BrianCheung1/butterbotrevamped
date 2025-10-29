@@ -1,23 +1,32 @@
 import random
 
 import discord
-from constants.steal_config import (BASE_SUCCESS_RATE, EXTRA_WEALTH_CAP,
-                                    EXTRA_WEALTH_MULTIPLIER,
-                                    LARGE_BALANCE_MULTIPLIER,
-                                    LARGE_BALANCE_THRESHOLD,
-                                    MIN_BALANCE_TO_STEAL, STEAL_AMOUNT_RANGE,
-                                    STEAL_COOLDOWN, STOLEN_FROM_COOLDOWN,
-                                    THEFT_TIER_WEIGHTS, THEFT_TIERS,
-                                    WEALTH_FACTOR_CAP, WEALTH_MULTIPLIER,
-                                    StealEventType)
+from constants.steal_config import (
+    BASE_SUCCESS_RATE,
+    EXTRA_WEALTH_CAP,
+    EXTRA_WEALTH_MULTIPLIER,
+    LARGE_BALANCE_MULTIPLIER,
+    LARGE_BALANCE_THRESHOLD,
+    MIN_BALANCE_TO_STEAL,
+    STEAL_AMOUNT_RANGE,
+    STEAL_COOLDOWN,
+    STOLEN_FROM_COOLDOWN,
+    THEFT_TIER_WEIGHTS,
+    THEFT_TIERS,
+    WEALTH_FACTOR_CAP,
+    WEALTH_MULTIPLIER,
+    StealEventType,
+)
 from discord import app_commands
 from utils.base_cog import BaseGameCog
 from utils.cooldown import get_cooldown_response
 from utils.formatting import format_number
 from utils.pagination import PaginatedView
-from utils.steal_helpers import (calculate_lost_amount,
-                                 calculate_steal_success_rate,
-                                 calculate_stolen_amount)
+from utils.steal_helpers import (
+    calculate_lost_amount,
+    calculate_steal_success_rate,
+    calculate_stolen_amount,
+)
 
 
 class StealStatusView(PaginatedView):
@@ -109,6 +118,10 @@ class Steal(BaseGameCog):
             )
             return
 
+        # Check cooldowns
+        if await self._check_cooldowns(thief_id, target_id, interaction):
+            return
+
         await interaction.response.defer()
 
         # Fetch balances
@@ -126,10 +139,6 @@ class Steal(BaseGameCog):
             await interaction.edit_original_response(
                 content=f"You need ${format_number(MIN_BALANCE_TO_STEAL)} to steal!"
             )
-            return
-
-        # Check cooldowns
-        if await self._check_cooldowns(thief_id, target_id, interaction):
             return
 
         # Get buffs
