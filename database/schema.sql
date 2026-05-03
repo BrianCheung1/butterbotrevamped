@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS user_game_stats (
     roulettes_played INTEGER DEFAULT 0,
     roulettes_total_won INTEGER DEFAULT 0,
     roulettes_total_lost INTEGER DEFAULT 0,
-    duel_stats TEXT DEFAULT '{}',  -- Store duel stats as a JSON
+    duel_stats TEXT DEFAULT '{}',
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS roll_history (
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     user_roll INTEGER NOT NULL,
     dealer_roll INTEGER NOT NULL,
-    result TEXT NOT NULL, -- 'win', 'loss', 'tie'
+    result TEXT NOT NULL,
     amount INTEGER NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
@@ -135,9 +135,9 @@ CREATE TABLE IF NOT EXISTS user_work_stats (
 -- User Buffs Table
 CREATE TABLE IF NOT EXISTS user_buffs (
     user_id INTEGER,
-    buff_type TEXT NOT NULL,             
-    multiplier REAL NOT NULL DEFAULT 1,  
-    expires_at TIMESTAMP,       
+    buff_type TEXT NOT NULL,
+    multiplier REAL NOT NULL DEFAULT 1,
+    expires_at TIMESTAMP,
     uses_left INTEGER DEFAULT NULL,
     PRIMARY KEY (user_id, buff_type),
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     leaderboard_announcements_channel_id INTEGER,
     mod_log_channel_id INTEGER,
     osrs_margin_channel_id INTEGER,
-    osrs_below_avg_channel_id INTEGER 
+    osrs_below_avg_channel_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS interactions (
@@ -188,30 +188,35 @@ CREATE TABLE IF NOT EXISTS interactions (
 
 -- Uploaded Games
 CREATE TABLE IF NOT EXISTS steam_games (
-    title TEXT PRIMARY KEY,               -- Game title (must be unique)
-    add_type TEXT NOT NULL,               -- 'Added' or 'Updated'
-    download_link TEXT NOT NULL,          -- Google Drive or direct download link
-    steam_link TEXT NOT NULL,             -- URL to the Steam page
-    description TEXT,                     -- Short description of the game
-    image TEXT,                           -- Steam banner/image URL
-    build TEXT,                           -- Optional build version string
-    notes TEXT DEFAULT 'No Notes',        -- Optional user-specified notes
-    price TEXT,                           -- Display price (or N/A)
-    reviews TEXT,                         -- Steam reviews summary (e.g. 'Very Positive (2,312)')
-    app_id TEXT,                          -- Steam App ID
-    genres TEXT,                          -- Comma-separated genres
-    categories TEXT,                      -- Comma-separated categories
-    added_by_id TEXT,                     -- Discord user ID who added the game
-    added_by_name TEXT,                   -- Discord username of the person
+    title TEXT PRIMARY KEY,
+    add_type TEXT NOT NULL,
+    download_link TEXT NOT NULL,
+    steam_link TEXT NOT NULL,
+    description TEXT,
+    image TEXT,
+    build TEXT,
+    notes TEXT DEFAULT 'No Notes',
+    price TEXT,
+    reviews TEXT,
+    app_id TEXT,
+    genres TEXT,
+    categories TEXT,
+    added_by_id TEXT,
+    added_by_name TEXT,
     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Patch Notes 
+-- Patch Notes
+-- image_url was missing from the original schema despite being used in
+-- patch_notes_db.py add_patch_note(), get_patch_note_by_id(), and
+-- update_patch_note_changes_and_image(). Any insert or select referencing
+-- that column would fail or silently return nothing on existing databases.
 CREATE TABLE IF NOT EXISTS patch_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     author_id INTEGER,
     author_name TEXT,
-    changes TEXT, -- stored as a single string with ; delimiter
+    changes TEXT,
+    image_url TEXT DEFAULT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -224,17 +229,17 @@ CREATE TABLE IF NOT EXISTS reminders (
 );
 
 CREATE TABLE IF NOT EXISTS message_logs (
-    message_id INTEGER PRIMARY KEY,         -- Discord message ID (unique per message)
-    guild_id INTEGER NOT NULL,               -- Guild where the message was sent
-    channel_id INTEGER NOT NULL,             -- Channel where the message was sent
-    author_id INTEGER NOT NULL,              -- User who sent the message
-    content TEXT,                           -- Original message content
-    attachments TEXT,                       -- JSON-encoded list of attachment URLs
-    created_at TIMESTAMP NOT NULL,          -- When message was originally created
-    deleted_at TIMESTAMP DEFAULT NULL,      -- When message was deleted (NULL if not deleted)
-    edited_before TEXT DEFAULT NULL,         -- Message content before edit (NULL if not edited)
-    edited_after TEXT DEFAULT NULL,          -- Message content after edit (NULL if not edited)
-    edited_at TIMESTAMP DEFAULT NULL         -- When the message was last edited
+    message_id INTEGER PRIMARY KEY,
+    guild_id INTEGER NOT NULL,
+    channel_id INTEGER NOT NULL,
+    author_id INTEGER NOT NULL,
+    content TEXT,
+    attachments TEXT,
+    created_at TIMESTAMP NOT NULL,
+    deleted_at TIMESTAMP DEFAULT NULL,
+    edited_before TEXT DEFAULT NULL,
+    edited_after TEXT DEFAULT NULL,
+    edited_at TIMESTAMP DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id);
@@ -246,16 +251,11 @@ CREATE INDEX IF NOT EXISTS idx_message_logs_created_at ON message_logs(created_a
 CREATE INDEX IF NOT EXISTS idx_players_name_tag ON players(name, tag);
 CREATE INDEX IF NOT EXISTS idx_bank_stats_user_id ON user_bank_stats(user_id);
 CREATE INDEX IF NOT EXISTS idx_bank_stats_balance ON user_bank_stats(bank_balance DESC);
-
 CREATE INDEX IF NOT EXISTS idx_work_stats_user_id ON user_work_stats(user_id);
 CREATE INDEX IF NOT EXISTS idx_work_mining_level ON user_work_stats(mining_level DESC);
 CREATE INDEX IF NOT EXISTS idx_work_fishing_level ON user_work_stats(fishing_level DESC);
-
 CREATE INDEX IF NOT EXISTS idx_steal_stats_user_id ON user_steal_stats(user_id);
 CREATE INDEX IF NOT EXISTS idx_steal_last_stolen ON user_steal_stats(last_stolen_from_at);
-
 CREATE INDEX IF NOT EXISTS idx_inventory_user_id ON user_inventory(user_id);
-
 CREATE INDEX IF NOT EXISTS idx_guild_settings_guild_id ON guild_settings(guild_id);
-
 CREATE INDEX IF NOT EXISTS idx_users_balance ON users(balance DESC);

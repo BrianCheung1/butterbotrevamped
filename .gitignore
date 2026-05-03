@@ -176,3 +176,5 @@ cython_debug/
 database/database.db
 .vscode/settings.json
 database/backups
+database/database.db-shm
+database/database.db-wal

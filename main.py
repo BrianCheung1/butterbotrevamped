@@ -13,11 +13,16 @@ from utils.osrs_data_manager import OSRSDataManager
 from utils.valorant_data_manager import ValorantDataManager
 from utils.valorant_helpers import load_cached_players_from_db
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Setup logger
 logger = setup_logger("Butterbot")
+
+DB_PATH = os.path.join(
+    os.path.realpath(os.path.dirname(__file__)), "database", "database.db"
+)
+SCHEMA_PATH = os.path.join(
+    os.path.realpath(os.path.dirname(__file__)), "database", "schema.sql"
+)
 
 
 class MyBot(commands.Bot):
@@ -28,26 +33,63 @@ class MyBot(commands.Bot):
             help_command=None,
         )
         self.logger = logger
-        self.database = None
+        self.database: DatabaseManager | None = None
+        self._db_connection: aiosqlite.Connection | None = None
         self.invite_link = os.getenv("INVITE_LINK")
-        self.active_blackjack_players = set()
+        self.active_blackjack_players: set[int] = set()
         self.valorant_players = PlayerCacheManager()
         self.osrs_data = OSRSDataManager(self)
         self.valorant_data = ValorantDataManager(self)
+        self.start_time = datetime.now()
 
-    async def init_db(self) -> None:
-        async with aiosqlite.connect(
-            f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
-        ) as db:
-            with open(
-                f"{os.path.realpath(os.path.dirname(__file__))}/database/schema.sql",
-                encoding="utf-8",
-            ) as file:
-                await db.executescript(file.read())
+    async def setup_hook(self) -> None:
+        """
+        Called once after login, before connecting to the gateway.
+        This is the correct place for one-time async initialization:
+        database setup, cog loading, and background task prep.
+
+        Unlike on_ready, this is guaranteed to run exactly once even
+        if the bot reconnects after a network drop.
+        """
+        await self._init_db()
+        await self._load_cogs()
+
+    async def _init_db(self) -> None:
+        """
+        Initialize the database: run schema migrations, open a persistent
+        connection, and wire up all the database manager sub-classes.
+
+        Keeping a single long-lived connection (stored on self._db_connection)
+        means we can close it cleanly in close() rather than leaking it on
+        reconnects, which was the bug with the old on_ready approach.
+        """
+        # Apply schema (CREATE TABLE IF NOT EXISTS is idempotent, safe to run on every start)
+        async with aiosqlite.connect(DB_PATH) as db:
+            with open(SCHEMA_PATH, encoding="utf-8") as f:
+                await db.executescript(f.read())
             await db.commit()
 
-    async def load_cogs(self):
-        # Find all cog modules (exclude private files)
+        # Apply performance pragmas before handing the connection to the manager.
+        # WAL mode allows concurrent reads during writes and is safer for bots
+        # that have multiple cogs hitting the DB simultaneously.
+        conn = await aiosqlite.connect(DB_PATH)
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute(
+            "PRAGMA synchronous=NORMAL"
+        )  # safe with WAL, faster than FULL
+        await conn.execute("PRAGMA cache_size=10000")  # ~40 MB page cache in memory
+        await conn.execute("PRAGMA foreign_keys=ON")  # enforce FK constraints
+        await conn.commit()
+
+        self._db_connection = conn
+        self.database = DatabaseManager(connection=conn)
+        self.logger.info("Database initialised.")
+
+    async def _load_cogs(self) -> None:
+        """
+        Discover and load every cog module under the cogs/ directory.
+        Private files (starting with _) are skipped.
+        """
         cogs_to_load = [
             os.path.splitext(os.path.join(root, file))[0].replace(os.sep, ".")
             for root, _, files in os.walk("cogs")
@@ -55,12 +97,11 @@ class MyBot(commands.Bot):
             if file.endswith(".py") and not file.startswith("_")
         ]
 
-        failed_cogs = []
-        logged_folders = set()
+        failed_cogs: list[str] = []
+        logged_folders: set[str] = set()
 
         for name in cogs_to_load:
             parts = name.split(".")
-            # e.g. 'cogs.moderation.some_cog' => top_level_name = 'cogs.moderation'
             top_level_name = ".".join(parts[:2]) if len(parts) >= 2 else name
 
             try:
@@ -79,7 +120,9 @@ class MyBot(commands.Bot):
 
     async def on_ready(self) -> None:
         """
-        This will just be executed when the bot starts the first time.
+        Fired every time the bot (re)connects to Discord — including after
+        network drops. Only do gateway-dependent work here (presence, cache
+        warm-up). Never put one-time init here.
         """
         self.logger.info("-------------------")
         self.logger.info(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
@@ -87,38 +130,39 @@ class MyBot(commands.Bot):
         self.logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         self.logger.info(f"Ping: {round(self.latency * 1000)} ms")
         self.logger.info("-------------------")
-        await self.init_db()
-        self.database = DatabaseManager(
-            connection=await aiosqlite.connect(
-                f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
-            )
-        )
+
+        # Set presence — needs the gateway, so it belongs here.
         activity = discord.Game(name="Butterbot")
         await self.change_presence(status=discord.Status.online, activity=activity)
 
-        # Load cached players into thread-safe manager
+        # Warm up in-memory caches that require data from the DB / external APIs.
+        # These are fast reads so it's fine to redo them on reconnect.
         cached_players = await load_cached_players_from_db(self.database.players_db)
         await self.valorant_players.batch_set(cached_players)
-        self.logger.info(f"Loaded {len(cached_players)} Valorant players into cache")
+        self.logger.info(f"Loaded {len(cached_players)} Valorant players into cache.")
 
         await self.osrs_data.initialize()
-        await self.load_cogs()
+
+    async def close(self) -> None:
+        """
+        Graceful shutdown: close the DB connection before the event loop stops.
+        Without this, aiosqlite can log "Future exception was never retrieved"
+        warnings and WAL checkpoint may not flush cleanly to disk.
+        """
+        self.logger.info("Shutting down — closing database connection...")
+        if self._db_connection:
+            await self._db_connection.close()
+            self.logger.info("Database connection closed.")
+        await super().close()
 
     async def on_message(self, message: discord.Message) -> None:
-        """
-        The code in this event is executed every time someone sends a message, with or without the prefix
-
-        :param message: The message that was sent.
-        """
         if message.author == self.user or message.author.bot:
             return
         await self.process_commands(message)
 
 
-# Initialize and run the bot with error handling
 try:
     bot = MyBot()
-    bot.start_time = datetime.now()
     bot.run(os.getenv("TOKEN"))
 except discord.LoginFailure:
     logger.error("Invalid token provided. Please check your .env file.")

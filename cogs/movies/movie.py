@@ -26,13 +26,23 @@ class Movies(commands.Cog):
         await self.load_cached_movies()
 
     async def load_cached_movies(self):
-        """Load movies when cog is loaded"""
+        """
+        Load all movies from the database into the in-memory guild cache.
+
+        Previous bug: self.guilds[guild_id][movie["title"]] = movie was
+        outside the for loop due to wrong indentation, so only the very
+        last movie in the result set was ever stored in any guild's cache.
+        """
         movies = await self.bot.database.movies_db.get_all_movies()
+
         for movie in movies:
             guild_id = movie["guild_id"]
             if guild_id not in self.guilds:
                 self.guilds[guild_id] = {}
-        self.guilds[guild_id][movie["title"]] = movie
+            # This line must be inside the loop so every movie gets cached,
+            # not just the last one the loop happened to land on.
+            self.guilds[guild_id][movie["title"]] = movie
+
         logger.info(f"Cached {len(movies)} movies across {len(self.guilds)} guilds")
 
     @app_commands.command(name="movie-add", description="Search for a movie by title.")
@@ -44,7 +54,6 @@ class Movies(commands.Cog):
             await interaction.followup.send("❌ No results found.")
             return
 
-        # Fetch full movie details asynchronously for top 5 results
         async def fetch_movie(movie_id):
             return await asyncio.to_thread(ia.get_movie, movie_id)
 
@@ -67,7 +76,7 @@ class Movies(commands.Cog):
         message = await interaction.followup.send(
             "🎬 Select a movie from the list below:", view=view
         )
-        view.message = message  # Store the message so `on_timeout` can edit it
+        view.message = message
 
     @app_commands.command(
         name="movie-list", description="List all movies added to the guild."
@@ -128,7 +137,6 @@ class Movies(commands.Cog):
             guild_id=str(interaction.guild_id)
         )
 
-        # Filter and return matching titles
         return [
             app_commands.Choice(name=m["title"], value=m["title"])
             for m in movies
@@ -156,6 +164,9 @@ class Movies(commands.Cog):
         )
 
         if success:
+            # Also remove from in-memory cache so it doesn't linger
+            guild_cache = self.guilds.get(str(interaction.guild_id), {})
+            guild_cache.pop(title, None)
             await interaction.followup.send(f"✅ Removed {title} from the list.")
         else:
             await interaction.followup.send(f"❌ Could not remove {title}.")
@@ -204,20 +215,20 @@ class MovieDropdownView(discord.ui.View):
         super().__init__(timeout=10)
         self.select = MovieSelect(movies, fetch_details_func, db, guilds)
         self.add_item(self.select)
-        self.message = None  # This will be set after sending the message
+        self.message = None
 
     async def on_timeout(self):
-        self.select.disabled = True  # Disable the dropdown
+        self.select.disabled = True
 
-        if self.message:  # Only attempt to edit if message is stored
+        if self.message:
             try:
                 await self.message.edit(
                     content="⚠️ Timed out. Please run the command again.", view=self
                 )
             except discord.NotFound:
-                pass  # Message deleted
+                pass
             except discord.HTTPException:
-                pass  # Failed to edit for some reason
+                pass
 
 
 class MovieSelect(discord.ui.Select):
@@ -301,8 +312,12 @@ class MovieActionView(discord.ui.View):
             await interaction.followup.send(
                 f"✅ Saved **{self.title}**!\n🔗 {imdb_link}"
             )
-            self.guilds[str(self.original_interaction.guild_id)][self.title] = {
-                "guild_id": self.original_interaction.guild_id,
+            # Keep in-memory cache in sync with the database
+            guild_id = str(self.original_interaction.guild_id)
+            if guild_id not in self.guilds:
+                self.guilds[guild_id] = {}
+            self.guilds[guild_id][self.title] = {
+                "guild_id": guild_id,
                 "title": self.title,
                 "imdb_id": self.imdb_id,
                 "imdb_link": imdb_link,
@@ -310,7 +325,6 @@ class MovieActionView(discord.ui.View):
                 "added_by_name": self.original_interaction.user.name,
                 "notes": None,
             }
-
         else:
             await interaction.followup.send(
                 f"⚠️ Could not save **{self.title}**. Maybe it's already in the list?"
@@ -322,12 +336,11 @@ class MovieActionView(discord.ui.View):
     ):
         await interaction.response.defer(thinking=True)
 
-        view = MovieDropdownView(self.movies, self.fetch_details, self.db)
+        view = MovieDropdownView(self.movies, self.fetch_details, self.db, self.guilds)
         await interaction.followup.send(
             "🎬 Select a movie from the list below:", view=view
         )
 
 
 async def setup(bot):
-
     await bot.add_cog(Movies(bot))

@@ -1,10 +1,15 @@
+import sqlite3
 from datetime import datetime
 
 import discord
 from discord import app_commands
-from discord.app_commands import (AppCommandError, BotMissingPermissions,
-                                  CheckFailure, CommandOnCooldown,
-                                  MissingPermissions)
+from discord.app_commands import (
+    AppCommandError,
+    BotMissingPermissions,
+    CheckFailure,
+    CommandOnCooldown,
+    MissingPermissions,
+)
 from discord.ext import commands
 from logger import setup_logger
 
@@ -21,11 +26,11 @@ class CommandEvents(commands.Cog):
         self, interaction: discord.Interaction, command: app_commands.Command
     ) -> None:
         """
-        This event is triggered when a slash command has been successfully executed.
+        Triggered when a slash command has been successfully executed.
         """
         executed_command = f"/{command.qualified_name}"
         user = interaction.user
-        now = datetime.now().strftime("%I:%M:%S:%p")  # 12-hour format
+        now = datetime.now().strftime("%I:%M:%S:%p")
 
         GREEN = "\x1b[32m"
         RESET = "\x1b[0m"
@@ -48,13 +53,15 @@ class CommandEvents(commands.Cog):
         self, interaction: discord.Interaction, error: AppCommandError
     ) -> None:
         """
-        This event is triggered when an error occurs while executing a slash command.
+        Triggered when an error occurs while executing a slash command.
+        Handles known error types with user-friendly messages.
+        Unknown errors are logged in full for debugging.
         """
         command_name = (
             f"/{interaction.command.name}" if interaction.command else "/unknown"
         )
         user = interaction.user
-        now = datetime.now().strftime("%I:%M:%S:%p")  # 12-hour format
+        now = datetime.now().strftime("%I:%M:%S:%p")
 
         RED = "\x1b[31m"
         RESET = "\x1b[0m"
@@ -74,30 +81,69 @@ class CommandEvents(commands.Cog):
 
         logger.error(log_msg, exc_info=True)
 
-        # Respond to the user if possible
+        # Ensure we can respond — defer if not already done
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
+
+        # Unwrap the original exception if discord.py wrapped it.
+        # CommandInvokeError wraps whatever your command raised, so we need
+        # the original to check isinstance against our own exception types.
+        original = getattr(error, "original", error)
 
         if isinstance(error, CommandOnCooldown):
             await interaction.followup.send(
                 f"This command is on cooldown. Try again in {error.retry_after:.2f} seconds.",
                 ephemeral=True,
             )
+
         elif isinstance(error, MissingPermissions):
             await interaction.followup.send(
-                "You do not have permission to use this command.", ephemeral=True
+                "You do not have permission to use this command.",
+                ephemeral=True,
             )
+
         elif isinstance(error, BotMissingPermissions):
             await interaction.followup.send(
-                "I do not have permission to execute this command.", ephemeral=True
+                "I do not have permission to execute this command.",
+                ephemeral=True,
             )
+
         elif isinstance(error, CheckFailure):
             await interaction.followup.send(
-                "You do not have permission to use this command.", ephemeral=True
+                "You do not have permission to use this command.",
+                ephemeral=True,
             )
+
+        elif isinstance(original, sqlite3.OperationalError):
+            # DB errors bubble up from the database layer via db_error_handler.
+            # They are already logged there with full context, so we just need
+            # to give the user a clean message here without re-logging.
+            if "database is locked" in str(original).lower():
+                await interaction.followup.send(
+                    "⚠️ The database is temporarily busy. Please try again in a moment.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "⚠️ A database error occurred. Please try again in a moment.",
+                    ephemeral=True,
+                )
+
+        elif isinstance(original, sqlite3.DatabaseError):
+            # Broader SQLite errors (corruption, disk full, etc.)
+            logger.critical(
+                f"Critical database error in {command_name}: {original}",
+                exc_info=True,
+            )
+            await interaction.followup.send(
+                "⚠️ A serious database error occurred. Please contact an admin.",
+                ephemeral=True,
+            )
+
         else:
             await interaction.followup.send(
-                f"An error occurred: {error}", ephemeral=True
+                f"An error occurred: {error}",
+                ephemeral=True,
             )
 
 

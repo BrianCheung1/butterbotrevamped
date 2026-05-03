@@ -223,6 +223,12 @@ class WorkAgainView(discord.ui.View):
         self.correct_color = None
         self.lock = asyncio.Lock()
 
+        # FIX 1: Initialize to None here so on_timeout always has a defined
+        # value to check against, even if the view times out before _do_work
+        # has a chance to assign them after the message is sent.
+        self.message_id: Optional[int] = None
+        self.channel: Optional[discord.TextChannel] = None
+
         button_label = "Mine Again" if work_type == WorkType.MINING else "Fish Again"
         work_btn = discord.ui.Button(
             label=button_label, style=discord.ButtonStyle.green
@@ -268,16 +274,32 @@ class WorkAgainView(discord.ui.View):
             await interaction.edit_original_response(embed=embed, view=self)
 
     def _add_color_buttons(self):
-        """Add color choice buttons for captcha."""
+        """
+        Add color choice buttons for captcha.
+
+        FIX 2: The original used a lambda wrapping asyncio.create_task(), which
+        scheduled the coroutine as a fire-and-forget task. Any exception raised
+        inside handle_color_choice would be attached to the task but never
+        awaited, so it would silently disappear — never logged, never surfaced.
+
+        Using a proper async def callback means exceptions propagate normally
+        through discord.py's error handling pipeline.
+
+        The default argument (c=color) is intentional — it captures the current
+        value of color at definition time, avoiding the classic loop closure bug
+        where all buttons would reference the last value of color.
+        """
         for color, style in [
             ("Green", discord.ButtonStyle.green),
             ("Red", discord.ButtonStyle.red),
             ("Blue", discord.ButtonStyle.blurple),
         ]:
             button = discord.ui.Button(label=color, style=style)
-            button.callback = lambda i, c=color: asyncio.create_task(
-                self.handle_color_choice(i, c)
-            )
+
+            async def color_callback(interaction: discord.Interaction, c=color):
+                await self.handle_color_choice(interaction, c)
+
+            button.callback = color_callback
             self.add_item(button)
 
     async def handle_color_choice(
@@ -292,7 +314,7 @@ class WorkAgainView(discord.ui.View):
         await interaction.response.defer()
 
         if chosen_color == self.correct_color:
-            # Correct choice
+            # Remove color buttons, re-enable work button
             for item in self.children:
                 if isinstance(item, discord.ui.Button) and item.label not in [
                     "Mine Again",
@@ -307,7 +329,6 @@ class WorkAgainView(discord.ui.View):
                 content="✅ Correct! You can continue.", view=self
             )
         else:
-            # Wrong choice - FIX: Use correct key format to remove session
             work_name = self.work_type.value.capitalize()
             for item in self.children:
                 if isinstance(item, discord.ui.Button):
@@ -315,18 +336,32 @@ class WorkAgainView(discord.ui.View):
             now = time()
             penalty = 300 * (self.failures.get(self.user_id, 0) + 1)
             self.cooldowns[self.user_id] = now + penalty
-            self.active_sessions[work_name].pop(self.user_id, None)  # ✅ Fixed
+            self.active_sessions[work_name].pop(self.user_id, None)
             await interaction.edit_original_response(
                 content="❌ Wrong color! Cooldown started.", view=self
             )
 
     async def on_timeout(self):
-        """Handle timeout - FIX: Use correct key format."""
-        work_name = self.work_type.value.capitalize()  # ✅ Fixed
-        self.active_sessions[work_name].pop(self.user_id, None)  # ✅ Fixed
+        """
+        Handle view timeout — clean up the active session and disable the message.
+
+        FIX 1: self.channel and self.message_id are set by _do_work after the
+        message is sent. If the view somehow times out before those assignments
+        complete (unlikely but possible), the old code would raise AttributeError
+        on self.channel.fetch_message which was swallowed by a bare except.
+        We now initialize both to None in __init__ and guard here.
+        """
+        work_name = self.work_type.value.capitalize()
+        self.active_sessions[work_name].pop(self.user_id, None)
+
+        if not self.channel or not self.message_id:
+            return
+
         try:
             message = await self.channel.fetch_message(self.message_id)
-            await message.edit(content=f"{work_name} timed out", embed=None, view=None)
+            await message.edit(
+                content=f"{work_name} session timed out.", embed=None, view=None
+            )
         except Exception:
             pass
 
@@ -364,8 +399,7 @@ class Work(BaseGameCog):
                     ephemeral=True,
                 )
             except Exception as e:
-                # FIX: Remove from correct nested dictionary
-                self.active_sessions[work_name].pop(user_id, None)  # ✅ Fixed
+                self.active_sessions[work_name].pop(user_id, None)
                 self.bot.logger.error(f"Error fetching active session message: {e}")
                 await interaction.response.defer()
             else:
@@ -402,12 +436,17 @@ class Work(BaseGameCog):
             self.cooldowns,
             self.failures,
         )
-        view.message = await interaction.followup.send(embed=embed, view=view)
-        view.message_id = view.message.id
+
+        sent_message = await interaction.followup.send(embed=embed, view=view)
+
+        # Assign after send — view is already initialized with None defaults
+        # so on_timeout is safe even if it fires between these two lines
+        view.message = sent_message
+        view.message_id = sent_message.id
         view.channel = interaction.channel
 
         # Store active session
-        self.active_sessions[work_name][user_id] = view.message
+        self.active_sessions[work_name][user_id] = sent_message
 
 
 async def setup(bot):
