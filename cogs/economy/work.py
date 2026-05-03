@@ -11,8 +11,7 @@ from constants.fishing_config import FISHING_RARITY_TIERS
 from constants.mining_config import MINING_RARITY_TIERS
 from discord import app_commands
 from utils.base_cog import BaseGameCog
-from utils.bonus_calculator import (calculate_value_bonuses,
-                                    calculate_xp_bonuses)
+from utils.bonus_calculator import calculate_value_bonuses, calculate_xp_bonuses
 from utils.equips import format_tool_display_name, get_tool_bonus
 from utils.formatting import format_number
 
@@ -148,7 +147,7 @@ def create_work_embed(
         else "No tool equipped"
     )
     tool_bonus_pct = get_tool_bonus(result.tool_name) * 100 if result.tool_name else 0.0
-    level_bonus_pct = result.current_level * 5
+    level_bonus_pct = result.current_level * 10
 
     embed = discord.Embed(
         title=f"{emoji} {user.display_name}'s {work_name} Results",
@@ -262,7 +261,8 @@ class WorkAgainView(discord.ui.View):
             if result.leveled_up:
                 work_name = self.work_type.value.capitalize()
                 await interaction.followup.send(
-                    f"🎉 {interaction.user.mention} leveled up to **{work_name} Level {result.current_level}**!"
+                    f"🎉 {interaction.user.mention} leveled up to **{work_name} Level {result.current_level}**!",
+                    ephemeral=True,
                 )
 
             await interaction.edit_original_response(embed=embed, view=self)
@@ -302,30 +302,30 @@ class WorkAgainView(discord.ui.View):
             self.captcha_active = False
             self.work_btn.disabled = False
             self.clicks = 0
-            self.click_threshold = 200
+            self.click_threshold = random.randint(20, 30)
             await interaction.edit_original_response(
                 content="✅ Correct! You can continue.", view=self
             )
         else:
-            # Wrong choice
+            # Wrong choice - FIX: Use correct key format to remove session
+            work_name = self.work_type.value.capitalize()
             for item in self.children:
                 if isinstance(item, discord.ui.Button):
                     item.disabled = True
             now = time()
             penalty = 300 * (self.failures.get(self.user_id, 0) + 1)
             self.cooldowns[self.user_id] = now + penalty
-            session_key = f"{self.user_id}_{self.work_type.value}"
-            self.active_sessions.pop(session_key, None)
+            self.active_sessions[work_name].pop(self.user_id, None)  # ✅ Fixed
             await interaction.edit_original_response(
                 content="❌ Wrong color! Cooldown started.", view=self
             )
 
     async def on_timeout(self):
-        """Handle timeout."""
-        self.active_sessions[self.work_type].pop(self.user_id, None)
+        """Handle timeout - FIX: Use correct key format."""
+        work_name = self.work_type.value.capitalize()  # ✅ Fixed
+        self.active_sessions[work_name].pop(self.user_id, None)  # ✅ Fixed
         try:
             message = await self.channel.fetch_message(self.message_id)
-            work_name = self.work_type.value.capitalize()
             await message.edit(content=f"{work_name} timed out", embed=None, view=None)
         except Exception:
             pass
@@ -355,6 +355,7 @@ class Work(BaseGameCog):
         user_id = interaction.user.id
         work_name = work_type.value.capitalize()
 
+        # Check if user has an active session
         if user_id in self.active_sessions[work_name]:
             msg = self.active_sessions[work_name][user_id]
             try:
@@ -363,29 +364,36 @@ class Work(BaseGameCog):
                     ephemeral=True,
                 )
             except Exception as e:
-                self.active_sessions.pop(user_id, None)
+                # FIX: Remove from correct nested dictionary
+                self.active_sessions[work_name].pop(user_id, None)  # ✅ Fixed
                 self.bot.logger.error(f"Error fetching active session message: {e}")
                 await interaction.response.defer()
             else:
                 return
 
+        # Check cooldown
         now = time()
         if user_id in self.cooldowns and now < self.cooldowns[user_id]:
             remaining = int(self.cooldowns[user_id] - now)
             await interaction.response.send_message(
-                f"⏳ You're on cooldown for another {remaining} seconds."
+                f"⏳ You're on cooldown for another {remaining} seconds.",
+                ephemeral=True,
             )
             return
 
+        # Perform work
         await interaction.response.defer()
         result = await perform_work(self.bot, user_id, work_type)
         embed = create_work_embed(interaction.user, result, work_type)
 
+        # Level up notification
         if result.leveled_up:
             await interaction.followup.send(
-                f"🎉 {interaction.user.mention} leveled up to **{work_name} Level {result.current_level}**!"
+                f"🎉 {interaction.user.mention} leveled up to **{work_name} Level {result.current_level}**!",
+                ephemeral=True,
             )
 
+        # Create view and send message
         view = WorkAgainView(
             self.bot,
             user_id,
@@ -398,6 +406,7 @@ class Work(BaseGameCog):
         view.message_id = view.message.id
         view.channel = interaction.channel
 
+        # Store active session
         self.active_sessions[work_name][user_id] = view.message
 
 

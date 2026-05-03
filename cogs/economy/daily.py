@@ -56,7 +56,7 @@ class Daily(BaseGameCog):
                 await interaction.response.send_message(msg)
                 return
 
-            elif days_since_last_claim >= 3:
+            elif days_since_last_claim >= 14:
                 # Missed 3+ days → streak reset
                 reset_streak = True
                 daily_streak = 0

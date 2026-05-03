@@ -4,7 +4,7 @@ from typing import Dict, Tuple
 def calculate_value_bonuses(
     base_value: int,
     level: int = 0,
-    level_multiplier: float = 0.05,
+    level_multiplier: float = 0.10,
     tool_bonus_pct: float = 0.0,
     pet_bonus_pct: float = 0.0,
 ) -> Tuple[int, int, int, int]:
@@ -14,7 +14,7 @@ def calculate_value_bonuses(
     Args:
         base_value: The base value before bonuses
         level: User level (for level-based bonus)
-        level_multiplier: Multiplier per level (default 5% per level)
+        level_multiplier: Multiplier per level (default 10% per level)
         tool_bonus_pct: Tool bonus as decimal (e.g., 0.2 = 20%)
         pet_bonus_pct: Pet bonus as decimal (e.g., 0.1 = 10%)
 

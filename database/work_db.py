@@ -22,16 +22,23 @@ class WorkDatabaseManager:
 
         return {"work_stats": work_stats}
 
+    def _calculate_next_level_xp(
+        self, level: int, base_xp: int = 100, power: float = 2.5
+    ) -> int:
+        """
+        Power curve scaling: base * level^power
+        - Faster early leveling
+        - Slow ramp-up at high levels
+        - Level 100 ≈ 10,000,000 XP when base=100, power=2.5
+        """
+        return int(base_xp * (level**power))
+
     @db_error_handler
     async def set_work_stats(self, user_id: int, value: int, xp: int, work_type: str):
         """
-        Update work stats atomically using SQL calculations.
-
-        IMPROVEMENT: All math happens in database, single UPDATE statement
         Returns: (new_xp, new_next_level_xp, current_level, leveled_up)
         """
         await self.db_manager._create_user_if_not_exists(user_id)
-
         async with self.db_manager.transaction():
             # First, increment the stats and XP
             async with self.connection.execute(
@@ -47,19 +54,15 @@ class WorkDatabaseManager:
                 (value, xp, user_id),
             ) as cursor:
                 row = await cursor.fetchone()
-
             if not row:
                 return None
-
             new_xp, current_level, next_level_xp = row[0], row[1], row[2]
-
             # Check if leveled up
             leveled_up = new_xp >= next_level_xp
             if leveled_up:
-                # Calculate new level and XP requirement
+                # Calculate new level and XP requirement using quadratic scaling
                 new_level = current_level + 1
-                new_next_xp = int(next_level_xp * 1.25)
-
+                new_next_xp = self._calculate_next_level_xp(new_level)
                 await self.connection.execute(
                     f"""
                     UPDATE user_work_stats
@@ -70,7 +73,5 @@ class WorkDatabaseManager:
                     """,
                     (new_level, new_next_xp, user_id),
                 )
-
                 return new_xp, new_next_xp, new_level, True
-
             return new_xp, next_level_xp, current_level, False
